@@ -3,7 +3,7 @@
 Herramienta de diseño sonoro para video: cargás un video, describís la
 escena, y la banda sonora se organiza en cuatro elementos —**Ambientes**,
 **Efectos**, **Foley**, **Diálogos**— cada uno compuesto por varias capas,
-editables después de generadas. Inspirada en [fmffmf.studio/machines](https://fmffmf.studio/machines).
+editables después de generadas. 
 
 ## Subir esto a GitHub desde la web (sin git, sin GitHub Desktop)
 
