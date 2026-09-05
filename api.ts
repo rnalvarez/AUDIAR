@@ -1,4 +1,4 @@
-const configuredBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "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").trim().replace(/\/+$/, "");
+const configuredBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").trim().replace(/\/+$/, "");
 function isGitHubPagesHost(): boolean {
   return typeof window !== "undefined" && window.location.hostname.endsWith("github.io");
 }
