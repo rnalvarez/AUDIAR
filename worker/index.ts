@@ -2,6 +2,8 @@ import { searchFreesound } from "./provider-freesound.ts";
 import { generateStableAudio } from "./provider-stable-audio.ts";
 import { generateGroqTTS } from "./provider-groq-tts.ts";
 import { searchSoundly } from "./provider-soundly.ts";
+import { analyzeFrame } from "./provider-vision.ts";
+import { generateSoundDesignProposal } from "./provider-sound-design.ts";
 import type { Env, SoundtrackElement } from "./types.ts";
 
 const CORS_HEADERS = {
@@ -61,6 +63,33 @@ export default {
         }
         const result = await searchSoundly({ query, element });
         return json(result);
+      }
+
+      // POST /api/analyze/frame  { image: "data:image/jpeg;base64,..." }
+      if (url.pathname === "/api/analyze/frame" && request.method === "POST") {
+        if (!env.GROQ_API_KEY) {
+          return json({ error: "GROQ_API_KEY is not configured on this worker" }, 500);
+        }
+        const body = await request.json();
+        if (typeof (body as any)?.image !== "string") {
+          return json({ error: "missing 'image' (expected a data: URL)" }, 400);
+        }
+        const result = await analyzeFrame({ image: (body as any).image, apiKey: env.GROQ_API_KEY });
+        return json(result);
+      }
+
+      // POST /api/design/proposal  { analysis: SceneAnalysis }
+      if (url.pathname === "/api/design/proposal" && request.method === "POST") {
+        if (!env.GROQ_API_KEY) {
+          return json({ error: "GROQ_API_KEY is not configured on this worker" }, 500);
+        }
+        const body = await request.json();
+        const analysis = (body as any)?.analysis;
+        if (!analysis || typeof analysis !== "object") {
+          return json({ error: "missing 'analysis' (expected a SceneAnalysis object)" }, 400);
+        }
+        const proposal = await generateSoundDesignProposal({ analysis, apiKey: env.GROQ_API_KEY });
+        return json(proposal);
       }
 
       // POST /api/generate/stable-audio  { prompt, element, durationSeconds }

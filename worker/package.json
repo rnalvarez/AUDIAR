@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node --experimental-strip-types provider-freesound.test.ts"
+    "test": "node --experimental-strip-types provider-freesound.test.ts && node --experimental-strip-types provider-vision.test.ts && node --experimental-strip-types provider-sound-design.test.ts"
   },
   "devDependencies": {
     "wrangler": "^4.0.0",

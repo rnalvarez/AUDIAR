@@ -1,9 +1,10 @@
 # AUDIAR
 
-Herramienta de diseño sonoro para video: cargás un video, describís la
-escena, y la banda sonora se organiza en cuatro elementos —**Ambientes**,
+Herramienta de diseño sonoro: cargás un fotograma de la escena, AUDIAR lo
+analiza con IA (observado / probable / posible — nunca inventa un sonido
+como hecho), y la banda sonora se organiza en cuatro elementos —**Ambientes**,
 **Efectos**, **Foley**, **Diálogos**— cada uno compuesto por varias capas,
-editables después de generadas. 
+editables después de generadas. Inspirada en [fmffmf.studio/machines](https://fmffmf.studio/machines).
 
 ## Subir esto a GitHub desde la web (sin git, sin GitHub Desktop)
 
@@ -34,13 +35,14 @@ estructura funciona igual — no hace falta deshacer nada.
 |---|---|
 | Búsqueda en Freesound (con filtro de licencia comercial) | ✅ funcionando, con test |
 | Editor de capas (vol/pan/mute/solo por capa) | ✅ funcionando, client-side |
-| Carga y preview de video | ✅ funcionando |
+| Carga y preview de un fotograma (imagen) | ✅ funcionando |
+| Análisis visual automático (Groq vision → `SceneAnalysis` con observado/probable/posible) | ✅ funcionando, con test |
+| Propuesta de diseño sonoro (`SceneAnalysis` → `SoundDesignProposal` editable, Ambientes/Efectos/Foley/Diálogos) | ✅ funcionando, con test — todavía sin conectar a Freesound a propósito |
 | Menú de plataforma/fuente por elemento (Freesound / Soundly / Generado) | ✅ UI funcionando — Soundly y Generado quedan marcados "pronto" hasta que sus providers estén listos |
 | Soundly | 🚧 bloqueado — no encontré API pública documentada (solo app de escritorio con integraciones a DAWs). Revisá tu cuenta o escribiles para confirmar si existe API de partner |
 | Decomposición de un prompt único en sub-prompts por elemento | 🚧 simplificado — hoy copia el mismo texto a las 4 categorías; falta el paso de IA (Groq) que lo divida de verdad |
 | Generación con Stable Audio Open (Ambientes, y Foley/Efectos sin match) | 🚧 stub — falta elegir hosting (`worker/provider-stable-audio.ts`) |
 | Generación de voces con Groq/Orpheus (Diálogos) | 🚧 stub — solo falta la key y la llamada (`worker/provider-groq-tts.ts`) |
-| Timeline sincronizado al video (reusando el editor de pasos Foley de la cátedra) | ⬜ no arrancado — mandame ese código para partir de ahí en vez de rehacer la sincronización |
 | Export final (mezcla / stems WAV) | ⬜ no arrancado |
 
 ## Por qué estos límites de licencia
@@ -59,17 +61,28 @@ gratis para uso comercial si facturás menos de US$1M/año.
 ## Arquitectura
 
 ```
-Prompt + video
+Fotograma (imagen)
       │
       ▼
+Análisis con IA (Groq vision) → SceneAnalysis
+      observado / probable / posible, por ítem
+      │
+      ▼
+Propuesta de diseño sonoro (Groq, razona como diseñador) → SoundDesignProposal
+      Ambientes / Efectos / Foley / Diálogos, editable (agregar/editar/eliminar)
+      máx. 6 propuestas por categoría — prioriza, no lista todo
+      │
+      ┆ (todavía no conectada a la búsqueda/generación de abajo)
+      ┆
+      ▼
 Banda sonora (4 elementos: Ambientes / Efectos / Foley / Diálogos)
-      │           cada panel elige su fuente: Freesound / Soundly / Generado
+      cada panel elige su fuente: Freesound / Soundly / Generado
       ├─ Foley / Efectos → Freesound o Soundly (buscar, filtrar licencia)
       ├─ Ambientes        → Stable Audio Open (generar)
       └─ Diálogos         → Groq / Orpheus TTS (generar)
       │
       ▼
-Editor (timeline sobre el video) → Export (mezcla / stems)
+Editor de capas (vol/pan/mute/solo) → Export (mezcla / stems)
 ```
 
 - `worker/` — Cloudflare Worker. Guarda las API keys del lado servidor.
@@ -86,12 +99,13 @@ Editor (timeline sobre el video) → Export (mezcla / stems)
 ```bash
 cd worker
 npm install
-cp .dev.vars.example .dev.vars   # completá FREESOUND_API_KEY
+cp .dev.vars.example .dev.vars   # completá FREESOUND_API_KEY y GROQ_API_KEY
 npm run dev                       # wrangler dev, puerto 8787
 npm test                          # corre el test de provider-freesound.ts
 ```
 
 Conseguir una key de Freesound: <https://freesound.org/apiv2/apply/> (gratis, al toque).
+Conseguir una key de Groq (para el análisis visual): <https://console.groq.com/keys>.
 
 ### App
 
@@ -103,10 +117,11 @@ npm run dev   # vite, con /api proxeado a localhost:8787
 
 ## Próximos pasos sugeridos
 
-1. Confirmar si Soundly tiene API de partner (cuenta o soporte) y completar `provider-soundly.ts`.
-2. Pasame el código del editor de pasos Foley de la cátedra Corti para
-   integrar el timeline sincronizado al video en vez de rehacerlo.
+1. Conectar la propuesta editada (`SoundDesignProposal`) con la búsqueda/generación
+   de sonido — hoy son cosas separadas a propósito.
+2. Confirmar si Soundly tiene API de partner (cuenta o soporte) y completar `provider-soundly.ts`.
 3. Elegir hosting para Stable Audio Open y completar `provider-stable-audio.ts`.
 4. Completar `provider-groq-tts.ts`.
-5. Sumar el paso de decomposición del prompt único (Groq) en `component-PromptBar.tsx`.
+5. Sumar el paso de decomposición del prompt único (Groq) en `component-PromptBar.tsx`,
+   usando el análisis de la escena como contexto adicional.
 6. Export final a WAV (mezcla y stems por elemento).

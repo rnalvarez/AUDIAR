@@ -22,3 +22,48 @@ export interface Layer {
   muted: boolean;
   solo: boolean;
 }
+
+// Mirrors worker/provider-vision.ts's SceneAnalysis exactly (same
+// duplication pattern as the rest of this file vs worker/types.ts).
+export type Certainty = "observed" | "probable" | "possible";
+
+export interface SoundCue {
+  text: string;
+  certainty: Certainty;
+}
+
+export interface SceneAnalysis {
+  sceneDescription: string;
+  place: SoundCue;
+  indoorOutdoor: SoundCue;
+  timeOfDay: SoundCue;
+  weather: SoundCue;
+  materialsAndSurfaces: SoundCue[];
+  humanPresence: SoundCue;
+  potentialSoundSources: SoundCue[];
+  observedActions: SoundCue[];
+  offScreenSources: SoundCue[];
+  ambience: SoundCue[];
+  effects: SoundCue[];
+  foley: SoundCue[];
+  dialogue: SoundCue[];
+  narrativeIdeas: SoundCue[];
+}
+
+// Mirrors worker/provider-sound-design.ts's shapes exactly.
+export type ProposalCategory = "ambientes" | "efectos" | "foley" | "dialogos";
+
+export interface SoundProposal {
+  id: string;
+  category: ProposalCategory;
+  description: string;
+  rationale: string;
+  certainty: Certainty;
+}
+
+export interface SoundDesignProposal {
+  ambientes: SoundProposal[];
+  efectos: SoundProposal[];
+  foley: SoundProposal[];
+  dialogos: SoundProposal[];
+}

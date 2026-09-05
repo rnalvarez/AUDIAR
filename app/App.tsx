@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { ELEMENTS, type Layer, type SoundtrackElement } from "./types";
-import { VideoPanel } from "./component-VideoPanel";
+import { ELEMENTS, type Layer, type SceneAnalysis, type SoundtrackElement } from "./types";
+import { FramePanel } from "./component-FramePanel";
+import { SoundDesignProposalPanel } from "./component-SoundDesignProposal";
 import { PromptBar } from "./component-PromptBar";
 import { SoundtrackPanel } from "./component-SoundtrackPanel";
 
@@ -16,6 +17,7 @@ const emptyLayers = (): LayersByElement => ({
 
 export default function App() {
   const [layers, setLayers] = useState<LayersByElement>(emptyLayers());
+  const [analysis, setAnalysis] = useState<SceneAnalysis | null>(null);
   const [queries, setQueries] = useState<QueryByElement>({
     ambientes: "",
     efectos: "",
@@ -31,10 +33,11 @@ export default function App() {
     <div className="app">
       <header className="app__header">
         <h1>AUDIAR</h1>
-        <span className="app__tagline">diseño sonoro para video, en capas</span>
+        <span className="app__tagline">diseño sonoro a partir de un fotograma, en capas</span>
       </header>
 
-      <VideoPanel />
+      <FramePanel analysis={analysis} onAnalysisChange={setAnalysis} />
+      <SoundDesignProposalPanel analysis={analysis} />
       <PromptBar onApply={applyPromptToAll} />
 
       <div className="app__grid">

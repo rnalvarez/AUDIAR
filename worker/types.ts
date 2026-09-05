@@ -30,5 +30,5 @@ export interface Layer {
 export interface Env {
   FREESOUND_API_KEY: string;
   STABILITY_API_KEY?: string; // for Stable Audio, once wired up
-  GROQ_API_KEY?: string; // for Orpheus TTS (Diálogos), once wired up
+  GROQ_API_KEY?: string; // used by provider-vision.ts (live); reserved for Orpheus TTS (Diálogos) once that's wired up
 }
