@@ -1,4 +1,3 @@
-```ts
 import { coerceCertainty, type Certainty, type SceneAnalysis } from "./provider-vision.ts";
 
 const MODEL = "qwen/qwen3.6-27b";
