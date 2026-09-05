@@ -1,34 +1,69 @@
 export type SoundtrackElement = "ambientes" | "efectos" | "foley" | "dialogos";
 
-export type LayerSource = "freesound" | "soundly" | "stable-audio" | "groq-tts";
+export const ELEMENTS: { id: SoundtrackElement; label: string; hint: string }[] = [
+  { id: "ambientes", label: "Ambientes", hint: "fondo continuo" },
+  { id: "efectos", label: "Efectos", hint: "sonidos puntuales" },
+  { id: "foley", label: "Foley", hint: "sincronizado a imagen" },
+  { id: "dialogos", label: "Diálogos", hint: "voces" },
+];
 
-/**
- * One generated/retrieved sound, already normalized to a common shape
- * regardless of which provider produced it. This is what the editor
- * (channel strip: vol/pan/mute/solo/reverb, timeline position) attaches to.
- */
 export interface Layer {
   id: string;
-  element: SoundtrackElement;
-  source: LayerSource;
   name: string;
-  /** Playable URL — a Freesound preview, or a generated-audio URL/blob. */
-  audioUrl: string;
+  license: string;
+  commerciallySafe: boolean;
   durationSeconds: number;
-  license?: string;
-  commerciallySafe?: boolean;
-  attribution?: string;
-  // Editor state — set by the frontend, not the providers.
-  startTime?: number;
-  gainDb?: number;
-  pan?: number; // -1 (L) .. 1 (R)
-  muted?: boolean;
-  solo?: boolean;
-  loop?: boolean;
+  audioUrl: string;
+  freesoundUrl?: string;
+  tags?: string[];
+  // Editor state (channel strip) — client-side only for now.
+  gainDb: number;
+  pan: number; // -1..1
+  muted: boolean;
+  solo: boolean;
 }
 
-export interface Env {
-  FREESOUND_API_KEY: string;
-  STABILITY_API_KEY?: string; // for Stable Audio, once wired up
-  GROQ_API_KEY?: string; // used by provider-vision.ts (live); reserved for Orpheus TTS (Diálogos) once that's wired up
+// Mirrors worker/provider-vision.ts's SceneAnalysis exactly (same
+// duplication pattern as the rest of this file vs worker/types.ts).
+export type Certainty = "observed" | "probable" | "possible";
+
+export interface SoundCue {
+  text: string;
+  certainty: Certainty;
+}
+
+export interface SceneAnalysis {
+  sceneDescription: string;
+  place: SoundCue;
+  indoorOutdoor: SoundCue;
+  timeOfDay: SoundCue;
+  weather: SoundCue;
+  materialsAndSurfaces: SoundCue[];
+  humanPresence: SoundCue;
+  potentialSoundSources: SoundCue[];
+  observedActions: SoundCue[];
+  offScreenSources: SoundCue[];
+  ambience: SoundCue[];
+  effects: SoundCue[];
+  foley: SoundCue[];
+  dialogue: SoundCue[];
+  narrativeIdeas: SoundCue[];
+}
+
+// Mirrors worker/provider-sound-design.ts's shapes exactly.
+export type ProposalCategory = "ambientes" | "efectos" | "foley" | "dialogos";
+
+export interface SoundProposal {
+  id: string;
+  category: ProposalCategory;
+  description: string;
+  rationale: string;
+  certainty: Certainty;
+}
+
+export interface SoundDesignProposal {
+  ambientes: SoundProposal[];
+  efectos: SoundProposal[];
+  foley: SoundProposal[];
+  dialogos: SoundProposal[];
 }
