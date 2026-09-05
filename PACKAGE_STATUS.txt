@@ -1,0 +1,15 @@
+AUDIAR — GitHub Pages ready package
+
+Source state: repository main branch as analyzed on 2026-09-04, including .github/workflows/deploy-pages.yml.
+
+GitHub Pages deployment:
+- Source: GitHub Actions
+- Build command: npm run build
+- Published directory: dist
+- Vite base on Pages: /AUDIAR/
+
+Backend:
+- Set GitHub Actions variable VITE_API_BASE_URL to the public Cloudflare Worker URL.
+- Do not place GROQ_API_KEY or FREESOUND_API_KEY in GitHub Pages or the frontend.
+
+Note: the previous Worker-only package-lock.json was intentionally not carried over because it did not match the React/Vite root package.json. The Pages workflow uses npm install.
