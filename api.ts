@@ -45,7 +45,6 @@ export function saveApiSettings(settings: ApiSettings): void {
 export function clearApiSettings(): void {
   if (!isBrowser()) return;
   window.localStorage.removeItem(STORAGE_KEY);
-  // Remove the previous Worker-based configuration as well.
   window.localStorage.removeItem("audiar.settings.v1");
   window.dispatchEvent(new CustomEvent("audiar-settings-changed"));
 }

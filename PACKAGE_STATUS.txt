@@ -1,5 +1,5 @@
 AUDIAR
 
-Versión preparada para GitHub Pages + Cloudflare Worker.
-Incluye configuración de credenciales desde la interfaz para uso personal.
+Versión preparada para GitHub Pages sin Cloudflare Worker.
+La aplicación se conecta directamente desde el navegador con Groq y Freesound.
 No incluye node_modules ni credenciales reales.
