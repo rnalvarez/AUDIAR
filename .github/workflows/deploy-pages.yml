@@ -23,19 +23,20 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
       - name: Install dependencies
         run: npm install
-      - name: Build
-        run: npm run build
+      - name: Build app
         env:
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          GITHUB_ACTIONS: true
+        run: npm run build
       - name: Setup Pages
         uses: actions/configure-pages@v5
-      - name: Upload artifact
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
+
   deploy:
     environment:
       name: github-pages
