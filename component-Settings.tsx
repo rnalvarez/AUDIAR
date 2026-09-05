@@ -28,10 +28,6 @@ export function Settings({ open, onClose, onSaved }: Props) {
   }
 
   function handleSave() {
-    if (!settings.apiBaseUrl.trim()) {
-      setMessage("Falta la URL del Worker.");
-      return;
-    }
     if (!settings.groqApiKey.trim()) {
       setMessage("Falta la API key de Groq.");
       return;
@@ -63,20 +59,8 @@ export function Settings({ open, onClose, onSaved }: Props) {
         </header>
 
         <p className="settings-panel__intro">
-          Para uso personal, podés guardar acá la URL de tu Worker y tus claves. Quedan almacenadas solamente en este navegador.
+          AUDIAR se conecta directamente desde este navegador con Groq y Freesound. No necesitás Cloudflare, un Worker ni una URL intermedia.
         </p>
-
-        <label className="settings-field">
-          <span>URL del Worker</span>
-          <input
-            type="url"
-            placeholder="https://audiar-worker.tusubdominio.workers.dev"
-            value={settings.apiBaseUrl}
-            onChange={(e) => update("apiBaseUrl", e.target.value)}
-            autoComplete="url"
-          />
-          <small>Es la URL pública que te entrega Cloudflare al desplegar el Worker.</small>
-        </label>
 
         <label className="settings-field">
           <span>Groq API key</span>
@@ -109,7 +93,7 @@ export function Settings({ open, onClose, onSaved }: Props) {
         </label>
 
         <div className="settings-panel__note">
-          Las claves no se guardan en GitHub. Para uso personal esta solución es práctica, pero el navegador puede acceder a ellas; no reutilices estas credenciales para compartir AUDIAR públicamente.
+          Las claves se guardan solamente en el almacenamiento local de este navegador y no se escriben en GitHub. Esta arquitectura es apropiada para uso personal; no compartas esta instancia si contiene tus credenciales.
         </div>
 
         {message && <p className="settings-panel__message">{message}</p>}
