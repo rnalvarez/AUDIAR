@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Layer, SoundtrackElement } from "./types";
 import { LayerStrip } from "./component-LayerStrip";
 import { SourceSelector, type Source } from "./component-SourceSelector";
+import { apiFetch } from "./api";
 
 interface Props {
   elementId: SoundtrackElement;
@@ -12,8 +13,6 @@ interface Props {
   onLayersChange: (layers: Layer[]) => void;
 }
 
-// Freesound and Soundly both return this shape ({element, query, results})
-// from the worker — see provider-freesound.ts / provider-soundly.ts.
 interface SearchApiLayer {
   id: number | string;
   name: string;
@@ -37,33 +36,34 @@ export function SoundtrackPanel({ elementId, label, hint, query, layers, onLayer
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    setSearch(query);
+  }, [query]);
+
   async function handleSearch() {
     if (!search.trim()) return;
     setLoading(true);
     setError(null);
     try {
       if (source === "generado") {
-        // TODO: POST /api/generate/stable-audio { prompt, element, durationSeconds }
-        // once provider-stable-audio.ts picks a hosting route — different
-        // shape (one generated layer, not a results list), so it needs its
-        // own branch here rather than reusing the search path below.
-        throw new Error("Generado (Stable Audio Open) todavía no está conectado.");
+        throw new Error("Generado todavía no está conectado.");
       }
 
       const params = new URLSearchParams({ query: search, element: elementId });
-      const res = await fetch(`${SEARCH_ENDPOINT[source]}?${params}`);
-      const data = await res.json();
+      const res = await apiFetch(`${SEARCH_ENDPOINT[source]}?${params}`);
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? `error ${res.status}`);
 
       const newLayers: Layer[] = (data.results as SearchApiLayer[]).map((r) => ({
         id: `${source}-${r.id}`,
+        element: elementId,
+        source,
         name: r.name,
         license: r.license,
         commerciallySafe: r.commerciallySafe,
         durationSeconds: r.durationSeconds,
         audioUrl: r.previewUrl ?? r.audioUrl ?? "",
         freesoundUrl: r.freesoundUrl,
-        tags: r.tags,
         gainDb: 0,
         pan: 0,
         muted: false,
@@ -71,8 +71,8 @@ export function SoundtrackPanel({ elementId, label, hint, query, layers, onLayer
       }));
       const existingIds = new Set(layers.map((l) => l.id));
       onLayersChange([...layers, ...newLayers.filter((l) => !existingIds.has(l.id))]);
-    } catch (e: any) {
-      setError(e.message ?? "no se pudo buscar");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "no se pudo buscar");
     } finally {
       setLoading(false);
     }

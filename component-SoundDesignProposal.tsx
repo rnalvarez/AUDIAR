@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Certainty, ProposalCategory, SceneAnalysis, SoundDesignProposal, SoundProposal } from "./types";
+import { apiFetch } from "./api";
 
 const CATEGORY_LABEL: Record<ProposalCategory, string> = {
   ambientes: "Ambientes",
@@ -24,12 +25,6 @@ interface Props {
   analysis: SceneAnalysis | null;
 }
 
-/**
- * Segunda etapa del pipeline: SceneAnalysis -> SoundDesignProposal.
- * A propósito NO llama a Freesound ni a ningún generador de audio todavía
- * — el resultado queda como estado editable en el cliente hasta que esa
- * conexión se sume en una etapa aparte.
- */
 export function SoundDesignProposalPanel({ analysis }: Props) {
   const [proposal, setProposal] = useState<SoundDesignProposal | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -40,16 +35,16 @@ export function SoundDesignProposalPanel({ analysis }: Props) {
     setGenerating(true);
     setError(null);
     try {
-      const res = await fetch("/api/design/proposal", {
+      const res = await apiFetch("/api/design/proposal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ analysis }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? `error ${res.status}`);
       setProposal(data as SoundDesignProposal);
-    } catch (e: any) {
-      setError(e.message ?? "no se pudo generar la propuesta");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "no se pudo generar la propuesta");
     } finally {
       setGenerating(false);
     }
@@ -58,7 +53,10 @@ export function SoundDesignProposalPanel({ analysis }: Props) {
   function updateItem(category: ProposalCategory, id: string, patch: Partial<SoundProposal>) {
     setProposal((prev) => {
       if (!prev) return prev;
-      return { ...prev, [category]: prev[category].map((p) => (p.id === id ? { ...p, ...patch } : p)) };
+      return {
+        ...prev,
+        [category]: prev[category].map((p) => (p.id === id ? { ...p, ...patch } : p)),
+      };
     });
   }
 

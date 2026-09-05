@@ -1,9 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// `wrangler dev` defaults to :8787. Adjust here if you change that.
+const isGitHubPagesBuild = process.env.GITHUB_ACTIONS === "true";
+
 export default defineConfig({
   plugins: [react()],
+  base: isGitHubPagesBuild ? "/AUDIAR/" : "/",
   server: {
     proxy: {
       "/api": "http://localhost:8787",
