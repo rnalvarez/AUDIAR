@@ -14,7 +14,7 @@ function corsHeaders(origin: string | null, env: Env) {
     "Access-Control-Allow-Origin": value,
     "Vary": "Origin",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, X-AUDIAR-GROQ-KEY, X-AUDIAR-FREESOUND-KEY",
   } as Record<string,string>;
 }
 function json(body: unknown, status = 200, env?: Env, request?: Request): Response {
@@ -33,9 +33,10 @@ export default {
         const element = url.searchParams.get("element") as SoundtrackElement | null;
         if (!query) return json({ error: "missing 'query'" }, 400, env, request);
         if (!element || !VALID_ELEMENTS.includes(element)) return json({ error: `'element' must be one of ${VALID_ELEMENTS.join(", ")}` }, 400, env, request);
-        if (!env.FREESOUND_API_KEY) return json({ error: "FREESOUND_API_KEY no está configurada" }, 500, env, request);
+        const freesoundApiKey = request.headers.get("X-AUDIAR-FREESOUND-KEY")?.trim() || env.FREESOUND_API_KEY?.trim();
+        if (!freesoundApiKey) return json({ error: "Falta la API key de Freesound. Configurala en ⚙ Configuración." }, 500, env, request);
         const commercialOnly = url.searchParams.get("commercialOnly") !== "false";
-        return json(await searchFreesound({ query, element, apiKey: env.FREESOUND_API_KEY, commercialOnly }), 200, env, request);
+        return json(await searchFreesound({ query, element, apiKey: freesoundApiKey, commercialOnly }), 200, env, request);
       }
       if (url.pathname === "/api/search/soundly" && request.method === "GET") {
         const query = url.searchParams.get("query");
@@ -45,16 +46,18 @@ export default {
         return json(await searchSoundly({ query, element }), 200, env, request);
       }
       if (url.pathname === "/api/analyze/frame" && request.method === "POST") {
-        if (!env.GROQ_API_KEY) return json({ error: "GROQ_API_KEY no está configurada" }, 500, env, request);
+        const groqApiKey = request.headers.get("X-AUDIAR-GROQ-KEY")?.trim() || env.GROQ_API_KEY?.trim();
+        if (!groqApiKey) return json({ error: "Falta la API key de Groq. Configurala en ⚙ Configuración." }, 500, env, request);
         const body = await request.json() as { image?: unknown };
         if (typeof body.image !== "string" || !body.image.startsWith("data:image/")) return json({ error: "missing 'image' (expected a data URL)" }, 400, env, request);
-        return json(await analyzeFrame({ image: body.image, apiKey: env.GROQ_API_KEY }), 200, env, request);
+        return json(await analyzeFrame({ image: body.image, apiKey: groqApiKey }), 200, env, request);
       }
       if (url.pathname === "/api/design/proposal" && request.method === "POST") {
-        if (!env.GROQ_API_KEY) return json({ error: "GROQ_API_KEY no está configurada" }, 500, env, request);
+        const groqApiKey = request.headers.get("X-AUDIAR-GROQ-KEY")?.trim() || env.GROQ_API_KEY?.trim();
+        if (!groqApiKey) return json({ error: "Falta la API key de Groq. Configurala en ⚙ Configuración." }, 500, env, request);
         const body = await request.json() as { analysis?: unknown };
         if (!body.analysis || typeof body.analysis !== "object") return json({ error: "missing 'analysis'" }, 400, env, request);
-        return json(await generateSoundDesignProposal({ analysis: body.analysis as never, apiKey: env.GROQ_API_KEY }), 200, env, request);
+        return json(await generateSoundDesignProposal({ analysis: body.analysis as never, apiKey: groqApiKey }), 200, env, request);
       }
       if (url.pathname === "/api/generate/stable-audio" && request.method === "POST") return json(await generateStableAudio(await request.json() as never), 200, env, request);
       if (url.pathname === "/api/generate/groq-tts" && request.method === "POST") return json(await generateGroqTTS(await request.json() as never), 200, env, request);

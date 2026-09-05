@@ -4,6 +4,8 @@ import { FramePanel } from "./component-FramePanel";
 import { SoundDesignProposalPanel } from "./component-SoundDesignProposal";
 import { PromptBar } from "./component-PromptBar";
 import { SoundtrackPanel } from "./component-SoundtrackPanel";
+import { Settings } from "./component-Settings";
+import { getApiSettings, hasApiSettings } from "./api";
 
 type LayersByElement = Record<SoundtrackElement, Layer[]>;
 type QueryByElement = Record<SoundtrackElement, string>;
@@ -13,6 +15,8 @@ const emptyLayers = (): LayersByElement => ({ ambientes: [], efectos: [], foley:
 export default function App() {
   const [layers, setLayers] = useState<LayersByElement>(emptyLayers());
   const [analysis, setAnalysis] = useState<SceneAnalysis | null>(null);
+  const [showSettings, setShowSettings] = useState(() => !hasApiSettings());
+  const [settingsReady, setSettingsReady] = useState(() => hasApiSettings());
   const [queries, setQueries] = useState<QueryByElement>({
     ambientes: "", efectos: "", foley: "", dialogos: "",
   });
@@ -28,7 +32,10 @@ export default function App() {
           <h1>AUDIAR</h1>
           <span className="app__tagline">diseño sonoro a partir de un fotograma, en capas</span>
         </div>
-        <div className="app__status">PROTOTIPO</div>
+        <div className="app__header-actions">
+          <div className={`app__status ${settingsReady ? "is-ready" : "is-warning"}`}>{settingsReady ? "CONECTADO" : "CONFIGURAR"}</div>
+          <button className="settings-button" onClick={() => setShowSettings(true)} aria-label="Abrir configuración">⚙</button>
+        </div>
       </header>
 
       <main>
@@ -68,6 +75,7 @@ export default function App() {
       </main>
 
       <footer className="app__footer">AUDIAR · herramienta experimental de pre-diseño sonoro</footer>
+      <Settings open={showSettings} onClose={() => setShowSettings(false)} onSaved={() => { setSettingsReady(hasApiSettings()); }} />
     </div>
   );
 }

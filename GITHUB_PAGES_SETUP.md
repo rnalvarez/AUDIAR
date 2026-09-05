@@ -49,3 +49,9 @@ Después del workflow, la aplicación debería quedar disponible en:
 `https://rnalvarez.github.io/AUDIAR/`
 
 Si la interfaz abre pero el botón de IA devuelve un error de backend, comprobá primero `VITE_API_BASE_URL` y después los secretos del Worker.
+
+## Configuración desde AUDIAR
+
+La aplicación puede funcionar sin `VITE_API_BASE_URL` en GitHub Actions. Al abrir AUDIAR por primera vez, el panel de configuración permite introducir la URL pública del Worker y las claves de Groq y Freesound. Se guardan en el almacenamiento local del navegador para uso personal.
+
+Las claves se envían al Worker en headers HTTPS y el Worker las usa solo para esa solicitud. Para uso compartido o público, no uses esta modalidad: mantené las claves exclusivamente como secrets del Worker.
