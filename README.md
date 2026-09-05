@@ -26,52 +26,37 @@ La aplicación está preparada para publicarse en:
 
 `https://rnalvarez.github.io/AUDIAR/`
 
-GitHub Pages sirve el frontend. El análisis de imagen y las búsquedas pasan por el Cloudflare Worker. La configuración detallada está en `GITHUB_PAGES_SETUP.md`.
+GitHub Pages sirve directamente el frontend. AUDIAR se conecta desde el navegador con las APIs de Groq y Freesound; no requiere Cloudflare Worker ni una URL de backend propia.
+
+## Configuración
+
+Al abrir AUDIAR por primera vez, entrá en **⚙ Configuración** y cargá:
+
+- `Groq API key`
+- `Freesound API key`
+
+Las claves se guardan solamente en el almacenamiento local de ese navegador y no forman parte del repositorio.
+
+Esta arquitectura está pensada para **uso personal**. GitHub Pages es público y el navegador puede acceder a las claves configuradas, por lo que esta modalidad no debe reutilizarse para una aplicación pública o compartida.
 
 ## Estructura
 
 - `App.tsx`, `main.tsx`, `component-*.tsx`: frontend React.
 - `style-app.css`, `style-tokens.css`: interfaz.
-- `api.ts`: resolución de la URL del backend.
-- `index.ts`: Cloudflare Worker.
+- `api.ts`: puente local que conecta la interfaz directamente con los providers.
 - `provider-*.ts`: providers y lógica de IA/búsqueda.
 - `.github/workflows/deploy-pages.yml`: publicación automática en GitHub Pages.
+
+No se necesita `index.ts`, `wrangler.toml` ni `tsconfig.worker.json`.
 
 ## Desarrollo local
 
 ```bash
 npm install
-npm run worker:dev
-```
-
-En otra terminal:
-
-```bash
 npm run dev
 ```
 
-Vite usa un proxy local `/api -> http://localhost:8787`.
-
-## Variables del Worker
-
-Configurá los secretos en Cloudflare:
-
-```bash
-npx wrangler secret put FREESOUND_API_KEY
-npx wrangler secret put GROQ_API_KEY
-```
-
-Opcionalmente, podés fijar `ALLOWED_ORIGIN` en `wrangler.toml` para limitar CORS.
-
-## Variables de GitHub Actions
-
-En GitHub: Settings → Secrets and variables → Actions → Variables.
-
-Definí:
-
-`VITE_API_BASE_URL=https://TU-WORKER.workers.dev`
-
-Esto se incorpora durante el build de GitHub Pages; no contiene una API key.
+Luego abrí la URL que indique Vite y configurá las dos API keys desde **⚙ Configuración**.
 
 ## Estado
 
