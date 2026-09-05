@@ -5,7 +5,7 @@ import { SoundDesignProposalPanel } from "./component-SoundDesignProposal";
 import { PromptBar } from "./component-PromptBar";
 import { SoundtrackPanel } from "./component-SoundtrackPanel";
 import { Settings } from "./component-Settings";
-import { getApiSettings, hasApiSettings } from "./api";
+import { hasApiSettings } from "./api";
 
 type LayersByElement = Record<SoundtrackElement, Layer[]>;
 type QueryByElement = Record<SoundtrackElement, string>;
