@@ -4,10 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "worker:dev": "wrangler dev index.ts",
     "worker:deploy": "wrangler deploy index.ts",
+    "worker:typecheck": "tsc -p tsconfig.worker.json --noEmit",
     "test": "node --experimental-strip-types provider-freesound.test.ts && node --experimental-strip-types provider-vision.test.ts && node --experimental-strip-types provider-sound-design.test.ts"
   },
   "dependencies": {
@@ -16,6 +17,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.0.0",
+    "@types/node": "^22.15.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",

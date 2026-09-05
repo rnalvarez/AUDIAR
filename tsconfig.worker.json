@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types", "node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": false
+  },
+  "include": ["index.ts", "provider-freesound.ts", "provider-vision.ts", "provider-sound-design.ts", "provider-stable-audio.ts", "provider-groq-tts.ts", "provider-soundly.ts", "types.ts"]
+}

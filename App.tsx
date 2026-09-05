@@ -8,21 +8,13 @@ import { SoundtrackPanel } from "./component-SoundtrackPanel";
 type LayersByElement = Record<SoundtrackElement, Layer[]>;
 type QueryByElement = Record<SoundtrackElement, string>;
 
-const emptyLayers = (): LayersByElement => ({
-  ambientes: [],
-  efectos: [],
-  foley: [],
-  dialogos: [],
-});
+const emptyLayers = (): LayersByElement => ({ ambientes: [], efectos: [], foley: [], dialogos: [] });
 
 export default function App() {
   const [layers, setLayers] = useState<LayersByElement>(emptyLayers());
   const [analysis, setAnalysis] = useState<SceneAnalysis | null>(null);
   const [queries, setQueries] = useState<QueryByElement>({
-    ambientes: "",
-    efectos: "",
-    foley: "",
-    dialogos: "",
+    ambientes: "", efectos: "", foley: "", dialogos: "",
   });
 
   function applyPromptToAll(prompt: string) {
@@ -32,27 +24,50 @@ export default function App() {
   return (
     <div className="app">
       <header className="app__header">
-        <h1>AUDIAR</h1>
-        <span className="app__tagline">diseño sonoro a partir de un fotograma, en capas</span>
+        <div>
+          <h1>AUDIAR</h1>
+          <span className="app__tagline">diseño sonoro a partir de un fotograma, en capas</span>
+        </div>
+        <div className="app__status">PROTOTIPO</div>
       </header>
 
-      <FramePanel analysis={analysis} onAnalysisChange={setAnalysis} />
-      <SoundDesignProposalPanel analysis={analysis} />
-      <PromptBar onApply={applyPromptToAll} />
+      <main>
+        <section className="stage">
+          <div className="stage__eyebrow">01 · OBSERVAR</div>
+          <h2 className="stage__title">Fotograma de referencia</h2>
+          <p className="stage__description">Cargá una imagen de la escena para analizarla desde el punto de vista del diseño sonoro.</p>
+          <FramePanel analysis={analysis} onAnalysisChange={setAnalysis} />
+        </section>
 
-      <div className="app__grid">
-        {ELEMENTS.map(({ id, label, hint }) => (
-          <SoundtrackPanel
-            key={id}
-            elementId={id}
-            label={label}
-            hint={hint}
-            query={queries[id]}
-            layers={layers[id]}
-            onLayersChange={(next) => setLayers((prev) => ({ ...prev, [id]: next }))}
-          />
-        ))}
-      </div>
+        <section className="stage">
+          <div className="stage__eyebrow">02 · DISEÑAR</div>
+          <h2 className="stage__title">Propuesta de diseño sonoro</h2>
+          <p className="stage__description">La IA propone ideas sonoras; vos podés editarlas, eliminarlas o agregar otras.</p>
+          <SoundDesignProposalPanel analysis={analysis} />
+        </section>
+
+        <section className="stage">
+          <div className="stage__eyebrow">03 · BUSCAR</div>
+          <h2 className="stage__title">Búsqueda y selección</h2>
+          <p className="stage__description">Explorá sonidos por categoría y agregalos a las capas del diseño.</p>
+          <PromptBar onApply={applyPromptToAll} />
+          <div className="app__grid">
+            {ELEMENTS.map(({ id, label, hint }) => (
+              <SoundtrackPanel
+                key={id}
+                elementId={id}
+                label={label}
+                hint={hint}
+                query={queries[id]}
+                layers={layers[id]}
+                onLayersChange={(next) => setLayers((prev) => ({ ...prev, [id]: next }))}
+              />
+            ))}
+          </div>
+        </section>
+      </main>
+
+      <footer className="app__footer">AUDIAR · herramienta experimental de pre-diseño sonoro</footer>
     </div>
   );
 }

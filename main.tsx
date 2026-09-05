@@ -3,9 +3,4 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./style-tokens.css";
 import "./style-app.css";
-
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);

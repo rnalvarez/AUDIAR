@@ -1,18 +1,13 @@
 export type SoundtrackElement = "ambientes" | "efectos" | "foley" | "dialogos";
-
 export type LayerSource = "freesound" | "soundly" | "stable-audio" | "groq-tts";
-
-/** Tipos usados por el análisis visual multimodal. */
+export const ELEMENTS: { id: SoundtrackElement; label: string; hint: string }[] = [
+  { id: "ambientes", label: "Ambientes", hint: "fondo continuo" },
+  { id: "efectos", label: "Efectos", hint: "sonidos puntuales" },
+  { id: "foley", label: "Foley", hint: "acciones y superficies" },
+  { id: "dialogos", label: "Diálogos", hint: "voces" },
+];
 export type { Certainty, SoundCue, SceneAnalysis } from "./provider-vision.ts";
-
-/** Tipos usados por la propuesta de diseño sonoro. */
 export type { ProposalCategory, SoundProposal, SoundDesignProposal } from "./provider-sound-design.ts";
-
-/**
- * Un sonido concreto seleccionado desde un provider.
- * La dimensión temporal queda preparada, pero no es necesaria todavía para
- * esta versión basada en fotogramas.
- */
 export interface Layer {
   id: string;
   element: SoundtrackElement;
@@ -32,9 +27,9 @@ export interface Layer {
   freesoundUrl?: string;
   tags?: string[];
 }
-
 export interface Env {
   FREESOUND_API_KEY: string;
   STABILITY_API_KEY?: string;
   GROQ_API_KEY?: string;
+  ALLOWED_ORIGIN?: string;
 }

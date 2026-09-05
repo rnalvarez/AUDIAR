@@ -3,8 +3,15 @@
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["@cloudflare/workers-types", "vite/client"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "vite/client",
+      "node"
+    ],
     "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
@@ -14,6 +21,19 @@
     "noUnusedParameters": false,
     "useDefineForClassFields": true
   },
-  "include": ["*.ts", "*.tsx"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "App.tsx",
+    "main.tsx",
+    "types.ts",
+    "api.ts",
+    "component-*.tsx",
+    "vite.config.ts",
+    "env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "index.ts",
+    "provider-*.ts"
+  ]
 }

@@ -7,8 +7,6 @@ export default defineConfig({
   plugins: [react()],
   base: isGitHubPagesBuild ? "/AUDIAR/" : "/",
   server: {
-    proxy: {
-      "/api": "http://localhost:8787",
-    },
+    proxy: { "/api": "http://localhost:8787" },
   },
 });

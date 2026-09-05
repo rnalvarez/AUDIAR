@@ -1,39 +1,36 @@
-# AUDIAR en GitHub Pages
+# Publicar AUDIAR en GitHub Pages
 
-La aplicación está preparada para publicarse en:
+## 1. Subir todo el repositorio
 
-`https://rnalvarez.github.io/AUDIAR/`
+Copiá todos los archivos de este paquete a la rama `main` de tu repositorio `rnalvarez/AUDIAR`.
 
-## 1. GitHub Pages
+## 2. Activar Pages
 
 En GitHub:
 
-Settings → Pages → Source → **GitHub Actions**
+**Settings → Pages → Source → GitHub Actions**
 
-Después de subir `.github/workflows/deploy-pages.yml` y hacer commit, el workflow `Deploy AUDIAR to GitHub Pages` construye y publica la aplicación automáticamente.
+El workflow `.github/workflows/deploy-pages.yml` se ejecutará en cada push a `main`.
 
-## 2. Backend de AUDIAR
+## 3. Desplegar el Worker
 
-GitHub Pages solo sirve el frontend. Las funciones que usan API (`/api/analyze/frame`, `/api/design/proposal`, `/api/search/freesound`, etc.) siguen ejecutándose en el Cloudflare Worker.
-
-El repositorio contiene el Worker (`index.ts`, providers y `wrangler.toml`), pero GitHub Pages no lo ejecuta.
-
-Primero desplegá el Worker, por ejemplo:
+Desde una instalación local de Node:
 
 ```bash
 npm install
+npx wrangler login
+npx wrangler secret put FREESOUND_API_KEY
+npx wrangler secret put GROQ_API_KEY
 npm run worker:deploy
 ```
 
-Eso te dará una URL pública del Worker, por ejemplo:
+Guardá la URL pública que entregue Cloudflare.
 
-`https://audiar-worker.<tu-subdominio>.workers.dev`
-
-## 3. Conectar GitHub Pages con el Worker
+## 4. Conectar Pages con el Worker
 
 En GitHub:
 
-Settings → Secrets and variables → Actions → Variables → New repository variable
+**Settings → Secrets and variables → Actions → Variables → New repository variable**
 
 Nombre:
 
@@ -43,24 +40,12 @@ Valor:
 
 `https://TU-WORKER.workers.dev`
 
-No hace falta que sea un secret: es una URL pública.
+No uses una API key como variable de Vite. La clave de Groq y la de Freesound deben permanecer en Cloudflare.
 
-Al volver a ejecutar el workflow, AUDIAR Pages utilizará esa URL para las llamadas al backend.
+## 5. Comprobar la publicación
 
-## 4. Desarrollo local
+Después del workflow, la aplicación debería quedar disponible en:
 
-Para trabajar localmente, ejecutá el frontend y el Worker por separado:
+`https://rnalvarez.github.io/AUDIAR/`
 
-Terminal 1:
-
-```bash
-npm run worker:dev
-```
-
-Terminal 2:
-
-```bash
-npm run dev
-```
-
-Vite mantiene el proxy `/api → http://localhost:8787`, por lo que no es necesario definir `VITE_API_BASE_URL` en desarrollo local.
+Si la interfaz abre pero el botón de IA devuelve un error de backend, comprobá primero `VITE_API_BASE_URL` y después los secretos del Worker.
