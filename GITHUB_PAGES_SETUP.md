@@ -1,8 +1,8 @@
 # Publicar AUDIAR en GitHub Pages
 
-## 1. Subir todo el repositorio
+## 1. Subir el repositorio
 
-Copiá todos los archivos de este paquete a la rama `main` de tu repositorio `rnalvarez/AUDIAR`.
+La rama `main` contiene todo lo necesario para publicar AUDIAR como sitio estático en GitHub Pages. No hace falta Cloudflare ni un Worker.
 
 ## 2. Activar Pages
 
@@ -12,46 +12,34 @@ En GitHub:
 
 El workflow `.github/workflows/deploy-pages.yml` se ejecutará en cada push a `main`.
 
-## 3. Desplegar el Worker
+## 3. Configurar las API keys
 
-Desde una instalación local de Node:
-
-```bash
-npm install
-npx wrangler login
-npx wrangler secret put FREESOUND_API_KEY
-npx wrangler secret put GROQ_API_KEY
-npm run worker:deploy
-```
-
-Guardá la URL pública que entregue Cloudflare.
-
-## 4. Conectar Pages con el Worker
-
-En GitHub:
-
-**Settings → Secrets and variables → Actions → Variables → New repository variable**
-
-Nombre:
-
-`VITE_API_BASE_URL`
-
-Valor:
-
-`https://TU-WORKER.workers.dev`
-
-No uses una API key como variable de Vite. La clave de Groq y la de Freesound deben permanecer en Cloudflare.
-
-## 5. Comprobar la publicación
-
-Después del workflow, la aplicación debería quedar disponible en:
+Abrí AUDIAR en:
 
 `https://rnalvarez.github.io/AUDIAR/`
 
-Si la interfaz abre pero el botón de IA devuelve un error de backend, comprobá primero `VITE_API_BASE_URL` y después los secretos del Worker.
+Entrá en **⚙ Configuración** y cargá:
 
-## Configuración desde AUDIAR
+- `Groq API key`
+- `Freesound API key`
 
-La aplicación puede funcionar sin `VITE_API_BASE_URL` en GitHub Actions. Al abrir AUDIAR por primera vez, el panel de configuración permite introducir la URL pública del Worker y las claves de Groq y Freesound. Se guardan en el almacenamiento local del navegador para uso personal.
+Las claves se almacenan solamente en el navegador mediante `localStorage`; no se suben a GitHub.
 
-Las claves se envían al Worker en headers HTTPS y el Worker las usa solo para esa solicitud. Para uso compartido o público, no uses esta modalidad: mantené las claves exclusivamente como secrets del Worker.
+## 4. Uso
+
+Cargá un fotograma, analizalo y generá la propuesta de diseño sonoro. Las búsquedas de Freesound se realizan directamente desde el navegador.
+
+No hace falta configurar `VITE_API_BASE_URL`, una URL de Worker, secretos de Cloudflare ni Wrangler.
+
+## 5. Desarrollo local
+
+```bash
+npm install
+npm run dev
+```
+
+Luego abrí la URL indicada por Vite y configurá las claves desde **⚙ Configuración**.
+
+## Nota de seguridad
+
+Esta arquitectura está pensada para uso personal. GitHub Pages es público y las claves introducidas en el navegador son accesibles por esa instancia de AUDIAR. No reutilices esta modalidad para distribuir la aplicación con credenciales compartidas.
