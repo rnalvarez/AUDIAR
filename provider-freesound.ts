@@ -1,4 +1,4 @@
-const SEARCH_ENDPOINT = "https://freesound.org/apiv2/search/text/";
+const SEARCH_ENDPOINT = "https://freesound.org/apiv2/search/";
 export interface FreesoundLayer { id:number; name:string; tags:string[]; durationSeconds:number; license:string; commerciallySafe:boolean; previewUrl:string; freesoundUrl:string; }
 export interface FreesoundSearchParams { query:string; apiKey:string; element:"ambientes"|"efectos"|"foley"|"dialogos"; maxResults?:number; commercialOnly?:boolean; }
 export interface FreesoundSearchResult { element:FreesoundSearchParams["element"]; query:string; results:FreesoundLayer[]; }
