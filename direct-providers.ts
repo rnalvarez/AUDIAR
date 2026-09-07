@@ -5,14 +5,12 @@ import type { Certainty, FreesoundResultItem, SceneAnalysis, SoundDesignProposal
 
 const GROQ_CHAT_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 const VISION_MODEL = "qwen/qwen3.6-27b"; // verificar vigencia en console.groq.com/docs/vision
-const PROPOSAL_MODEL = "qwen/qwen3.6-27b"; // verificar vigencia en console.groq.com/docs/models
+const PROPOSAL_MODEL = "qwen/qwen3.6-27b"; // compatibilidad con el motor anterior
 const FREESOUND_SEARCH_ENDPOINT = "https://freesound.org/apiv2/search/text/";
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_PROPOSALS_PER_CATEGORY = 6;
 const MAX_OUTPUT_TOKENS = 900;
 const DATA_URL_PATTERN = /^data:image\/(jpeg|png|webp);base64,/;
-
-// --- Freesound: mismo isCommerciallySafe que provider-freesound.ts ---
 
 export function isCommerciallySafeDirect(licenseUrlOrName: string): boolean {
   const l = licenseUrlOrName.toLowerCase();
@@ -28,11 +26,14 @@ export async function searchFreesoundDirect(
   apiKey: string,
   maxResults = 12
 ): Promise<FreesoundResultItem[]> {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) return [];
+
   const url = new URL(FREESOUND_SEARCH_ENDPOINT);
-  url.searchParams.set("query", query);
+  url.searchParams.set("query", trimmedQuery);
   url.searchParams.set("token", apiKey);
   url.searchParams.set("fields", "id,name,tags,duration,license,previews");
-  url.searchParams.set("page_size", String(Math.min(maxResults * 2, 50)));
+  url.searchParams.set("page_size", String(Math.min(maxResults * 3, 50)));
   url.searchParams.set("filter", 'license:("Creative Commons 0" OR "Attribution")');
 
   const res = await fetch(url.toString());
@@ -57,11 +58,37 @@ export async function searchFreesoundDirect(
         tags: Array.isArray(r.tags) ? r.tags.map((tag: unknown) => String(tag)) : [],
       };
     })
-    .filter((r) => r.commerciallySafe)
+    .filter((r) => r.commerciallySafe && Boolean(r.previewUrl))
+    .sort((a, b) => scoreFreesoundMatch(b, trimmedQuery) - scoreFreesoundMatch(a, trimmedQuery))
     .slice(0, maxResults);
 }
 
-// --- Groq vision: mismo prompt y coerción que provider-vision.ts ---
+const STOP_WORDS = new Set([
+  "a", "an", "and", "at", "background", "close", "distant", "far", "field", "for", "from",
+  "in", "inside", "interior", "near", "of", "on", "outdoor", "outside", "room", "sound", "the",
+  "to", "very", "wide", "with",
+]);
+
+function queryTokens(query: string): string[] {
+  return query
+    .toLowerCase()
+    .replace(/[^a-z0-9áéíóúüñ ]/gi, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && !STOP_WORDS.has(token));
+}
+
+function scoreFreesoundMatch(result: FreesoundResultItem, query: string): number {
+  const tokens = [...new Set(queryTokens(query))];
+  if (tokens.length === 0) return 0;
+  const haystack = `${result.name} ${(result.tags ?? []).join(" ")}`.toLowerCase();
+  let score = 0;
+  for (const token of tokens) {
+    if (haystack.includes(token)) score += token.length >= 6 ? 3 : 2;
+  }
+  if (haystack.includes(query.toLowerCase())) score += 6;
+  return score;
+}
 
 function coerceCertaintyDirect(value: unknown): Certainty {
   return value === "observed" || value === "probable" || value === "possible" ? value : "possible";
@@ -71,6 +98,7 @@ function coerceCueDirect(value: any) {
   return {
     text: typeof value?.text === "string" ? value.text.trim() : "",
     certainty: coerceCertaintyDirect(value?.certainty),
+    searchQuery: typeof value?.searchQuery === "string" ? value.searchQuery.trim() : "",
   };
 }
 
@@ -91,37 +119,36 @@ function validateImageDataUrlDirect(image: string): string | null {
   return null;
 }
 
-const ANALYSIS_PROMPT = `Sos un asistente de diseño sonoro para cine y video. Tu tarea es mirar la imagen de un fotograma y extraer información ÚTIL PARA DISEÑAR SONIDO — no una descripción visual genérica del tipo "una mujer está sentada en una habitación".
+const ANALYSIS_PROMPT = `Sos diseñador de sonido para cine. Mirá el fotograma y prepará una base MUY CONCRETA para buscar sonidos en Freesound.
 
-Para cada observación asigná un nivel de certeza:
-- "observed": algo directamente visible en la imagen.
-- "probable": una inferencia razonable a partir de lo visible.
-- "possible": una sugerencia creativa o especulativa, útil para el diseño pero no verificable desde la imagen.
+No hagas una descripción visual larga. Identificá primero el contexto acústico real de la imagen: lugar, interior/exterior, escala, superficies, presencia humana, acciones visibles y fuentes sonoras plausibles. Nunca inventes una selva si la imagen muestra una ciudad, ni agregues sonidos incompatibles con el contexto visual.
 
-Nunca presentes una sugerencia "possible" como si fuera un hecho "observed". Ante la duda, preferí "probable" o "possible" antes que "observed".
+Para CADA categoría (ambientes, efectos y foley) entregá EXACTAMENTE 3 sonidos útiles, salvo que una categoría sea realmente imposible; en ese caso podés usar menos. Los sonidos deben ser diferentes entre sí y directamente relacionados con la escena.
 
-Cubrí, cuando sea relevante: lugar, interior/exterior, momento del día, clima, materiales y superficies visibles, presencia humana, fuentes sonoras potenciales (objetos, vehículos, animales, maquinaria), acciones observables, fuentes fuera de campo plausibles, y sonidos posibles agrupados en ambiente, efectos, foley, diálogo, y sonidos subjetivos/narrativos (ideas creativas más allá de lo literal).
+Cada sonido debe tener:
+- text: nombre corto en español.
+- certainty: observed, probable o possible.
+- searchQuery: término MUY CORTO EN INGLÉS para Freesound, normalmente 2 a 5 palabras. Debe describir el sonido y mantener los elementos esenciales del contexto (por ejemplo, "urban traffic ambience", "wet asphalt footsteps", "metal door slam"). No escribas frases narrativas ni "audio recording of...".
 
-Ejemplo de estilo (persona caminando por una calle mojada de noche): ambiente → "calle urbana nocturna" (observed), "tráfico lejano" (probable); efectos → "agua desplazada por vehículos pasando" (probable), "semáforo sonoro" (possible); foley → "pasos sobre asfalto mojado" (observed); diálogo → "ninguna fuente evidente" (observed).
+El searchQuery es MUY IMPORTANTE: debe ser una consulta de biblioteca sonora, no una traducción literal de una frase larga. Conservá el contexto que evita resultados absurdos: si es ciudad, usá "urban", "city", "street", "traffic" cuando corresponda; si es bosque, "forest", etc.
 
-Todo el texto de tu respuesta debe estar en español, salvo las claves del JSON. Respondé ÚNICAMENTE con un objeto JSON con esta forma exacta (sin texto antes ni después):
-
+Todo el texto salvo searchQuery debe estar en español. Respondé SOLO JSON válido, sin texto adicional:
 {
   "sceneDescription": string,
-  "place": {"text": string, "certainty": "observed"|"probable"|"possible"},
-  "indoorOutdoor": {"text": string, "certainty": "..."},
-  "timeOfDay": {"text": string, "certainty": "..."},
-  "weather": {"text": string, "certainty": "..."},
-  "materialsAndSurfaces": [{"text": string, "certainty": "..."}],
-  "humanPresence": {"text": string, "certainty": "..."},
-  "potentialSoundSources": [{"text": string, "certainty": "..."}],
-  "observedActions": [{"text": string, "certainty": "..."}],
-  "offScreenSources": [{"text": string, "certainty": "..."}],
-  "ambience": [{"text": string, "certainty": "..."}],
-  "effects": [{"text": string, "certainty": "..."}],
-  "foley": [{"text": string, "certainty": "..."}],
-  "dialogue": [{"text": string, "certainty": "..."}],
-  "narrativeIdeas": [{"text": string, "certainty": "..."}]
+  "place": {"text": string, "certainty": "observed"|"probable"|"possible", "searchQuery": string},
+  "indoorOutdoor": {"text": string, "certainty": "observed"|"probable"|"possible", "searchQuery": string},
+  "timeOfDay": {"text": string, "certainty": "observed"|"probable"|"possible", "searchQuery": string},
+  "weather": {"text": string, "certainty": "observed"|"probable"|"possible", "searchQuery": string},
+  "materialsAndSurfaces": [{"text": string, "certainty": "observed"|"probable"|"possible", "searchQuery": string}],
+  "humanPresence": {"text": string, "certainty": "observed"|"probable"|"possible", "searchQuery": string},
+  "potentialSoundSources": [{"text": string, "certainty": "observed"|"probable"|"possible", "searchQuery": string}],
+  "observedActions": [{"text": string, "certainty": "observed"|"probable"|"possible", "searchQuery": string}],
+  "offScreenSources": [{"text": string, "certainty": "observed"|"probable"|"possible", "searchQuery": string}],
+  "ambience": [{"text": string, "certainty": "observed"|"probable"|"possible", "searchQuery": string}],
+  "effects": [{"text": string, "certainty": "observed"|"probable"|"possible", "searchQuery": string}],
+  "foley": [{"text": string, "certainty": "observed"|"probable"|"possible", "searchQuery": string}],
+  "dialogue": [],
+  "narrativeIdeas": []
 }`;
 
 export async function analyzeFrameDirect(image: string, apiKey: string): Promise<SceneAnalysis> {
@@ -136,7 +163,7 @@ export async function analyzeFrameDirect(image: string, apiKey: string): Promise
       messages: [
         { role: "user", content: [{ type: "text", text: ANALYSIS_PROMPT }, { type: "image_url", image_url: { url: image } }] },
       ],
-      temperature: 0.4,
+      temperature: 0.3,
       max_completion_tokens: MAX_OUTPUT_TOKENS,
       reasoning_effort: "none",
       reasoning_format: "hidden",
@@ -156,86 +183,40 @@ export async function analyzeFrameDirect(image: string, apiKey: string): Promise
   } catch {
     throw new Error("El análisis no llegó en formato JSON válido");
   }
+
+  const emptyCue = { text: "", certainty: "possible" as Certainty, searchQuery: "" };
+  const emptyArray: any[] = [];
+
   return {
     sceneDescription: typeof parsed?.sceneDescription === "string" ? parsed.sceneDescription.trim() : "",
-    place: coerceCueDirect(parsed?.place),
-    indoorOutdoor: coerceCueDirect(parsed?.indoorOutdoor),
-    timeOfDay: coerceCueDirect(parsed?.timeOfDay),
-    weather: coerceCueDirect(parsed?.weather),
-    materialsAndSurfaces: coerceCueArrayDirect(parsed?.materialsAndSurfaces),
-    humanPresence: coerceCueDirect(parsed?.humanPresence),
-    potentialSoundSources: coerceCueArrayDirect(parsed?.potentialSoundSources),
-    observedActions: coerceCueArrayDirect(parsed?.observedActions),
-    offScreenSources: coerceCueArrayDirect(parsed?.offScreenSources),
-    ambience: coerceCueArrayDirect(parsed?.ambience),
-    effects: coerceCueArrayDirect(parsed?.effects),
-    foley: coerceCueArrayDirect(parsed?.foley),
-    dialogue: coerceCueArrayDirect(parsed?.dialogue),
-    narrativeIdeas: coerceCueArrayDirect(parsed?.narrativeIdeas),
+    place: coerceCueDirect(parsed?.place ?? emptyCue),
+    indoorOutdoor: coerceCueDirect(parsed?.indoorOutdoor ?? emptyCue),
+    timeOfDay: coerceCueDirect(parsed?.timeOfDay ?? emptyCue),
+    weather: coerceCueDirect(parsed?.weather ?? emptyCue),
+    materialsAndSurfaces: coerceCueArrayDirect(parsed?.materialsAndSurfaces ?? emptyArray),
+    humanPresence: coerceCueDirect(parsed?.humanPresence ?? emptyCue),
+    potentialSoundSources: coerceCueArrayDirect(parsed?.potentialSoundSources ?? emptyArray),
+    observedActions: coerceCueArrayDirect(parsed?.observedActions ?? emptyArray),
+    offScreenSources: coerceCueArrayDirect(parsed?.offScreenSources ?? emptyArray),
+    ambience: coerceCueArrayDirect(parsed?.ambience ?? emptyArray),
+    effects: coerceCueArrayDirect(parsed?.effects ?? emptyArray),
+    foley: coerceCueArrayDirect(parsed?.foley ?? emptyArray),
+    dialogue: [],
+    narrativeIdeas: [],
   };
 }
 
-// --- Groq proposal: mismo prompt y coerción que provider-sound-design.ts ---
+// --- Groq proposal: compatibilidad con el motor anterior ---
 
 function coercePriorityDirect(value: unknown) {
   return value === "primary" || value === "secondary" || value === "accent" ? value : "secondary";
 }
 
-const PROPOSAL_PROMPT = `Sos un diseñador de sonido profesional para cine y video. Tu trabajo NO es identificar objetos en una imagen — es pensar en términos de diseño sonoro.
+const PROPOSAL_PROMPT = `Sos un diseñador de sonido profesional para cine y video. Proponé sonidos útiles para una escena a partir del análisis recibido.
 
-Antes de proponer nada, razoná para vos mismo (no hace falta mostrar las respuestas) sobre esta escena:
-1. ¿Dónde estamos?
-2. ¿Qué espacio acústico sugiere la imagen?
-3. ¿Qué sonidos son indispensables?
-4. ¿Qué sonidos son secundarios?
-5. ¿Qué sonidos podrían ocurrir fuera de campo?
-6. ¿Qué acciones pueden tener Foley?
-7. ¿Qué sonidos ayudan a establecer escala y distancia?
-8. ¿Qué sonidos pueden aportar narrativa?
-9. ¿Qué elementos conviene NO sonorizar?
-10. ¿Qué podría resolverse con ambiente continuo en lugar de múltiples efectos?
+Para cada propuesta asigná certainty (observed/probable/possible), priority (primary/secondary/accent), una rationale breve, spatialPerspective cuando aporte algo y un searchQuery EN INGLÉS corto y útil para Freesound.
 
-Dejá que estas ideas de diseño sonoro influyan en qué elegís y en qué prioridad les asignás — sin nombrarlas como texto académico en las propuestas: proximidad, profundidad, fuera de campo, continuidad, contraste, silencio, perspectiva, subjetividad.
-
-Para cada propuesta asigná:
-- certainty: "observed" (directamente sugerido por lo que el análisis marcó como observado), "probable" (plausible en esta escena aunque no sea visible), o "possible" (posibilidad creativa de diseño, no una inferencia directa).
-- priority: "primary" (indispensable — sin este sonido la escena suena incompleta o incorrecta), "secondary" (refuerza y da riqueza, pero la escena funciona sin él), o "accent" (detalle puntual u ocasional, textura, no estructural).
-
-Nunca presentes una idea "possible" como si fuera "observed". Priorizá calidad sobre cantidad: como máximo ${MAX_PROPOSALS_PER_CATEGORY} propuestas por categoría, idealmente menos — entre 2 y 4 suele ser lo profesional, y no todas necesitan ser "primary" (de hecho, la mayoría de una escena bien diseñada NO lo es). No propongas algo solo para llenar la lista.
-
-Cada propuesta necesita una razón breve (rationale) de por qué encaja en esta escena y en esa prioridad — no solo el nombre del sonido.
-
-Cuando aporte algo real (no siempre hace falta), agregá spatialPerspective: una frase corta en español sobre proximidad, distancia o perspectiva de ese sonido — ej. "cercano y directo", "lejano, fuera de campo", "envolvente de fondo". Si no aporta nada, dejalo como string vacío.
-
-Además, para cada propuesta generá un searchQuery EN INGLÉS — el término que se usaría para buscar ese sonido en una biblioteca como Freesound. El searchQuery debe:
-- ser conciso, sin frases narrativas ni explicaciones
-- describir el sonido en sí, priorizando características acústicas
-- incluir material o superficie, distancia, perspectiva, intensidad, e interior/exterior cuando sea relevante
-- no incluir palabras inútiles
-
-Ejemplo malo: "an audio recording of a person walking in a city"
-Ejemplo bueno: "wet asphalt footsteps adult walking urban street"
-
-Si la propuesta describe la AUSENCIA de una fuente sonora (por ejemplo "ninguna fuente evidente" en diálogos), dejá searchQuery como string vacío — no hay nada que buscar.
-
-Ejemplo de estilo, con prioridad (persona sola en una cocina de noche):
-- ambientes: "room tone interior" (observed, primary), "zumbido de heladera" (observed, secondary), "tráfico lejano" (probable, secondary, spatialPerspective "lejano, fuera de campo")
-- foley: "pasos" (observed, primary), "roce de ropa" (probable, secondary), "cajón abriéndose" (possible, accent)
-- efectos: "click del motor de la heladera" (probable, accent)
-
-Categorías: ambientes (fondo continuo), efectos (sonidos puntuales), foley (sincronizados a una acción o superficie), diálogos (voces, o la ausencia de una fuente evidente).
-
-Todo el texto de tu respuesta debe estar en español, salvo las claves del JSON y el searchQuery (en inglés). Respondé ÚNICAMENTE con un objeto JSON con esta forma exacta (sin texto antes ni después):
-
-{
-  "ambientes": [{"description": string, "rationale": string, "certainty": "observed"|"probable"|"possible", "priority": "primary"|"secondary"|"accent", "spatialPerspective": string, "searchQuery": string}],
-  "efectos": [{"description": string, "rationale": string, "certainty": "...", "priority": "...", "spatialPerspective": string, "searchQuery": string}],
-  "foley": [{"description": string, "rationale": string, "certainty": "...", "priority": "...", "spatialPerspective": string, "searchQuery": string}],
-  "dialogos": [{"description": string, "rationale": string, "certainty": "...", "priority": "...", "spatialPerspective": string, "searchQuery": string}]
-}
-
-Análisis de la escena (JSON):
-`;
+Priorizá pertinencia sobre cantidad. Respondé SOLO JSON válido.`;
 
 function coerceIdeaDirect(value: any, category: SoundIdea["category"], index: number): SoundIdea | null {
   const description = typeof value?.description === "string" ? value.description.trim() : "";
@@ -269,9 +250,7 @@ export async function generateSoundDesignProposalDirect(
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: PROPOSAL_MODEL,
-      messages: [
-        { role: "user", content: `${PROPOSAL_PROMPT}\n${JSON.stringify(analysis)}` },
-      ],
+      messages: [{ role: "user", content: `${PROPOSAL_PROMPT}\n${JSON.stringify(analysis)}` }],
       temperature: 0.5,
       max_completion_tokens: MAX_OUTPUT_TOKENS,
       reasoning_effort: "none",
