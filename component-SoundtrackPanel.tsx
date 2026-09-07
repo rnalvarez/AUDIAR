@@ -14,6 +14,7 @@ interface Props {
   apiKeys: ApiKeys;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
+  onSelectIds: (ids: string[]) => void;
 }
 
 export function SoundtrackPanel({
@@ -25,6 +26,7 @@ export function SoundtrackPanel({
   apiKeys,
   selectedIds,
   onToggleSelect,
+  onSelectIds,
 }: Props) {
   const [search, setSearch] = useState("");
   const [source, setSource] = useState<Source>("freesound");
@@ -137,6 +139,7 @@ export function SoundtrackPanel({
               onChange={(patch) => updateLayer(layer.id, patch)}
               onRemove={() => removeLayer(layer.id)}
               onAddResults={addResults}
+              onSelectIds={onSelectIds}
               apiKeys={apiKeys}
             />
           );
