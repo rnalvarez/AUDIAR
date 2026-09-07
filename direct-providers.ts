@@ -53,6 +53,7 @@ export async function searchFreesoundDirect(
         durationSeconds: typeof r.duration === "number" ? r.duration : 0,
         previewUrl: r.previews?.["preview-hq-mp3"] ?? r.previews?.["preview-lq-mp3"] ?? "",
         freesoundUrl: `https://freesound.org/s/${r.id}/`,
+        tags: Array.isArray(r.tags) ? r.tags.map((tag: unknown) => String(tag)) : [],
       };
     })
     .filter((r) => r.commerciallySafe)
@@ -240,34 +241,38 @@ function coerceIdeaDirect(value: any, category: SoundIdea["category"], index: nu
   if (!description) return null;
   const spatialPerspective = typeof value?.spatialPerspective === "string" ? value.spatialPerspective.trim() : "";
   return {
-    id: `${category}-${index}`,
+    id: `${category}-${index}-${crypto.randomUUID()}`,
     category,
     description,
     rationale: typeof value?.rationale === "string" ? value.rationale.trim() : "",
     certainty: coerceCertaintyDirect(value?.certainty),
-    priority: coercePriorityDirect(value?.priority) as SoundIdea["priority"],
-    ...(spatialPerspective ? { spatialPerspective } : {}),
+    priority: coercePriorityDirect(value?.priority),
+    spatialPerspective,
     searchQuery: typeof value?.searchQuery === "string" ? value.searchQuery.trim() : "",
+    searching: false,
+    expanded: false,
   };
 }
 
-function coerceIdeaArrayDirect(value: any, category: SoundIdea["category"]): SoundIdea[] {
-  const arr = Array.isArray(value) ? value : [];
-  return arr
-    .map((v, i) => coerceIdeaDirect(v, category, i))
-    .filter((p): p is SoundIdea => p !== null)
-    .slice(0, MAX_PROPOSALS_PER_CATEGORY);
+function coerceProposalArrayDirect(value: any, category: SoundIdea["category"]): SoundIdea[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item, index) => coerceIdeaDirect(item, category, index)).filter((x): x is SoundIdea => Boolean(x)).slice(0, MAX_PROPOSALS_PER_CATEGORY);
 }
 
-export async function generateProposalDirect(analysis: SceneAnalysis, apiKey: string): Promise<SoundDesignProposal> {
+export async function generateSoundDesignProposalDirect(
+  analysis: SceneAnalysis,
+  apiKey: string
+): Promise<SoundDesignProposal> {
   const res = await fetch(GROQ_CHAT_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: PROPOSAL_MODEL,
-      messages: [{ role: "user", content: PROPOSAL_PROMPT + JSON.stringify(analysis) }],
-      temperature: 0.6,
-      max_completion_tokens: 2048,
+      messages: [
+        { role: "user", content: `${PROPOSAL_PROMPT}\n${JSON.stringify(analysis)}` },
+      ],
+      temperature: 0.5,
+      max_completion_tokens: 3072,
       reasoning_effort: "none",
       reasoning_format: "hidden",
       response_format: { type: "json_object" },
@@ -275,21 +280,21 @@ export async function generateProposalDirect(analysis: SceneAnalysis, apiKey: st
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`Groq proposal request failed (${res.status}): ${body.slice(0, 300)}`);
+    throw new Error(`Groq proposal request failed (${res.status}): ${body.slice(0, 500)}`);
   }
   const data: any = await res.json();
   const content = data?.choices?.[0]?.message?.content;
-  if (typeof content !== "string") throw new Error("Groq no devolvió contenido de propuesta");
+  if (typeof content !== "string") throw new Error("Groq no devolvió contenido de propuesta sonora");
   let parsed: any;
   try {
     parsed = JSON.parse(content);
   } catch {
-    throw new Error("La propuesta no llegó en formato JSON válido");
+    throw new Error("La propuesta sonora no llegó en formato JSON válido");
   }
   return {
-    ambientes: coerceIdeaArrayDirect(parsed?.ambientes, "ambientes"),
-    efectos: coerceIdeaArrayDirect(parsed?.efectos, "efectos"),
-    foley: coerceIdeaArrayDirect(parsed?.foley, "foley"),
-    dialogos: coerceIdeaArrayDirect(parsed?.dialogos, "dialogos"),
+    ambientes: coerceProposalArrayDirect(parsed?.ambientes, "ambientes"),
+    efectos: coerceProposalArrayDirect(parsed?.efectos, "efectos"),
+    foley: coerceProposalArrayDirect(parsed?.foley, "foley"),
+    dialogos: coerceProposalArrayDirect(parsed?.dialogos, "dialogos"),
   };
 }
