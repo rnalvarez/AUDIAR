@@ -28,10 +28,10 @@ if "%RC%"=="0" (
   echo Script actualizado de REAPER:
   echo   %REAPER_SCRIPTS%\audiar-bridge.lua
   echo.
-  echo Se actualizo el Bridge para:
-  echo   - importar cada sonido en su propia pista
-  echo   - colorear las pistas por categoria
-  echo   - procesar el polling de REAPER con mayor rapidez
+  echo Se actualizaron:
+  echo   - comunicacion e importacion en REAPER
+  echo   - descarga de archivos originales de Freesound
+  echo   - servidor local para "Descargar todo" en el puerto 8766
   echo.
   echo IMPORTANTE:
   echo   Si REAPER ya tenia cargado el Lua anterior, detenelo y volve a
@@ -171,9 +171,17 @@ if not exist "%REPO_DIR%\bridge\index.ts" (
   call :fail 35 "No se encontro bridge\index.ts."
   exit /b 35
 )
-if not exist "%REPO_DIR%\bridge\audiar-bridge.lua" (
-  call :fail 36 "No se encontro bridge\audiar-bridge.lua."
+if not exist "%REPO_DIR%\bridge\download-server.ts" (
+  call :fail 36 "No se encontro bridge\download-server.ts."
   exit /b 36
+)
+if not exist "%REPO_DIR%\bridge\start.ts" (
+  call :fail 37 "No se encontro bridge\start.ts."
+  exit /b 37
+)
+if not exist "%REPO_DIR%\bridge\audiar-bridge.lua" (
+  call :fail 38 "No se encontro bridge\audiar-bridge.lua."
+  exit /b 38
 )
 
 rem --- Reemplazar la copia local por la version actual del repositorio ---
@@ -206,7 +214,7 @@ if errorlevel 1 (
   exit /b 51
 )
 
-rem --- Crear lanzador ---
+rem --- Crear lanzador unico: Bridge 8765 + Download Server 8766 ---
 (
   echo @echo off
   echo title AUDIAR REAPER Bridge
@@ -215,7 +223,8 @@ rem --- Crear lanzador ---
   echo echo.
   echo echo ============================================================
   echo echo AUDIAR REAPER Bridge
-  echo echo Escuchando en http://localhost:8765
+  echo echo REAPER Bridge:       http://localhost:8765
+  echo echo Servidor descargas:  http://localhost:8766
   echo echo Deja esta ventana abierta mientras uses AUDIAR.
   echo echo ============================================================
   echo echo.
