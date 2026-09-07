@@ -16,12 +16,6 @@ import os from "node:os";
 
 const PORT = 8765;
 
-// Ubicación estándar del resource path de REAPER por sistema operativo —
-// no es una función de la API de REAPER, es la carpeta donde REAPER guarda
-// sus datos de siempre. Si tu instalación es "portable" o no está en el
-// lugar de siempre, sobreescribí con la variable de entorno de abajo (en
-// REAPER: Options > Show REAPER resource path in explorer/finder, para
-// confirmar cuál es la tuya).
 function defaultReaperResourcePath(): string {
   const home = os.homedir();
   if (process.platform === "darwin") return path.join(home, "Library", "Application Support", "REAPER");
@@ -35,7 +29,7 @@ const JOBS_DIR = path.join(BRIDGE_DIR, "jobs");
 const CACHE_DIR = path.join(BRIDGE_DIR, "cache");
 
 const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*", // solo escucha en localhost; no hay nada que proteger de otros orígenes acá
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
@@ -43,7 +37,7 @@ const CORS_HEADERS = {
 interface IncomingSound {
   id: string;
   name: string;
-  element: string; // Ambientes/Efectos/Foley/Diálogos, ya en mayúscula inicial desde AUDIAR
+  element: string;
   audioUrl: string;
   gainDb?: number;
   pan?: number;
@@ -56,10 +50,6 @@ function json(res: import("node:http").ServerResponse, status: number, body: unk
   res.end(JSON.stringify(body));
 }
 
-// Escapa un string para insertarlo como literal Lua entre comillas dobles
-// — la tabla de trabajo se escribe como código Lua real (no JSON) para que
-// el propio dofile() de Lua la parsee sin que este bridge tenga que
-// implementar un parser JSON del lado de REAPER.
 function luaStringLiteral(value: string): string {
   return '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n") + '"';
 }
@@ -73,7 +63,7 @@ function safeFileName(id: string, url: string): string {
 async function downloadAudio(sound: IncomingSound): Promise<string> {
   const fileName = safeFileName(sound.id, sound.audioUrl);
   const localPath = path.join(CACHE_DIR, fileName);
-  if (existsSync(localPath)) return localPath; // ya descargado antes, no lo pide de nuevo
+  if (existsSync(localPath)) return localPath;
 
   const res = await fetch(sound.audioUrl);
   if (!res.ok) throw new Error(`No se pudo descargar ${sound.name}: HTTP ${res.status}`);
@@ -95,8 +85,10 @@ function writeJobFile(sounds: { path: string; track: string; name: string; gainD
       return `  { ${fields.join(", ")} },`;
     })
     .join("\n");
+
   const lua = `return {\n${entries}\n}\n`;
-  const fileName = `job_${Date.now()}.lua`;
+  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const fileName = `job_${uniqueSuffix}.lua`;
   return writeFile(path.join(JOBS_DIR, fileName), lua, "utf-8").then(() => fileName);
 }
 
@@ -128,11 +120,21 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const downloaded = [];
-      for (const sound of sounds) {
-        const localPath = await downloadAudio(sound);
-        downloaded.push({ path: localPath, track: sound.element, name: sound.name, gainDb: sound.gainDb, pan: sound.pan });
-      }
+      // Los sonidos se descargan en paralelo. Antes se descargaban uno por
+      // uno, por eso una selección grande podía quedar mucho tiempo en espera.
+      const downloaded = await Promise.all(
+        sounds.map(async (sound) => {
+          const localPath = await downloadAudio(sound);
+          return {
+            path: localPath,
+            track: sound.element,
+            name: sound.name,
+            gainDb: sound.gainDb,
+            pan: sound.pan,
+          };
+        })
+      );
+
       const jobFile = await writeJobFile(downloaded);
       json(res, 200, { ok: true, job: jobFile, count: downloaded.length });
     } catch (err: any) {
