@@ -17,6 +17,12 @@ export interface Layer {
   durationSeconds: number;
   audioUrl: string;
   freesoundUrl?: string;
+  freesoundId?: number;
+  originalFilename?: string;
+  originalType?: string;
+  sampleRate?: number;
+  bitDepth?: number;
+  fileSize?: number;
   tags?: string[];
   searchQuery?: string;
   gainDb: number;
@@ -62,6 +68,11 @@ export interface FreesoundResultItem {
   durationSeconds: number;
   previewUrl: string;
   freesoundUrl?: string;
+  originalFilename?: string;
+  originalType?: string;
+  sampleRate?: number;
+  bitDepth?: number;
+  fileSize?: number;
   tags?: string[];
   added?: boolean;
 }
