@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { Layer, SoundtrackElement } from "./types";
+import { useState } from "react";
+import type { FreesoundResultItem, Layer, SoundtrackElement } from "./types";
 import type { ApiKeys } from "./api-keys";
 import { searchFreesoundDirect } from "./direct-providers";
 import { LayerStrip } from "./component-LayerStrip";
@@ -9,7 +9,6 @@ interface Props {
   elementId: SoundtrackElement;
   label: string;
   hint: string;
-  query: string;
   layers: Layer[];
   onLayersChange: (layers: Layer[]) => void;
   apiKeys: ApiKeys;
@@ -21,21 +20,16 @@ export function SoundtrackPanel({
   elementId,
   label,
   hint,
-  query,
   layers,
   onLayersChange,
   apiKeys,
   selectedIds,
   onToggleSelect,
 }: Props) {
-  const [search, setSearch] = useState(query);
+  const [search, setSearch] = useState("");
   const [source, setSource] = useState<Source>("freesound");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSearch(query);
-  }, [query]);
 
   async function handleSearch() {
     if (!search.trim()) return;
@@ -56,29 +50,46 @@ export function SoundtrackPanel({
       }
 
       const results = await searchFreesoundDirect(search, apiKeys.freesound);
-
-      const newLayers: Layer[] = results.map((r) => ({
-        id: `${source}-${r.id}`,
-        name: r.name,
-        license: r.license,
-        commerciallySafe: r.commerciallySafe,
-        durationSeconds: r.durationSeconds,
-        audioUrl: r.previewUrl,
-        freesoundUrl: r.freesoundUrl,
-        tags: r.tags,
-        searchQuery: search.trim(),
-        gainDb: 0,
-        pan: 0,
-        muted: false,
-        solo: false,
-      }));
-      const existingIds = new Set(layers.map((l) => l.id));
-      onLayersChange([...layers, ...newLayers.filter((l) => !existingIds.has(l.id))]);
+      addResults(results, search.trim());
     } catch (e: any) {
       setError(e.message ?? "no se pudo buscar");
     } finally {
       setLoading(false);
     }
+  }
+
+  function createLayer(result: FreesoundResultItem, searchQuery = search.trim()): Layer {
+    return {
+      id: `freesound-${elementId}-${result.id}-${crypto.randomUUID()}`,
+      name: result.name,
+      license: result.license,
+      commerciallySafe: result.commerciallySafe,
+      durationSeconds: result.durationSeconds,
+      audioUrl: result.previewUrl,
+      freesoundUrl: result.freesoundUrl,
+      tags: result.tags,
+      searchQuery,
+      gainDb: 0,
+      pan: 0,
+      muted: false,
+      solo: false,
+    };
+  }
+
+  function addResults(results: FreesoundResultItem[], searchQuery = search.trim()): string[] {
+    const existingSourceIds = new Set(
+      layers
+        .map((layer) => layer.freesoundUrl?.match(/sound\/([0-9]+)\//)?.[1])
+        .filter(Boolean)
+    );
+    const newLayers = results
+      .filter((result) => !existingSourceIds.has(String(result.id)))
+      .map((result) => createLayer(result, searchQuery));
+
+    if (newLayers.length > 0) {
+      onLayersChange([...layers, ...newLayers]);
+    }
+    return newLayers.map((layer) => layer.id);
   }
 
   function updateLayer(id: string, patch: Partial<Layer>) {
@@ -113,18 +124,23 @@ export function SoundtrackPanel({
 
       <div className="panel__layers">
         {layers.length === 0 && !loading && <p className="panel__empty">sin capas todavía</p>}
-        {layers.map((layer) => (
-          <LayerStrip
-            key={layer.id}
-            layer={layer}
-            element={elementId}
-            selected={selectedIds.has(layer.id)}
-            onToggleSelect={() => onToggleSelect(layer.id)}
-            onChange={(patch) => updateLayer(layer.id, patch)}
-            onRemove={() => removeLayer(layer.id)}
-            apiKeys={apiKeys}
-          />
-        ))}
+        {layers.map((layer) => {
+          const otherSoloActive = layers.some((candidate) => candidate.id !== layer.id && candidate.solo);
+          return (
+            <LayerStrip
+              key={layer.id}
+              layer={layer}
+              element={elementId}
+              selected={selectedIds.has(layer.id)}
+              otherSoloActive={otherSoloActive}
+              onToggleSelect={() => onToggleSelect(layer.id)}
+              onChange={(patch) => updateLayer(layer.id, patch)}
+              onRemove={() => removeLayer(layer.id)}
+              onAddResults={addResults}
+              apiKeys={apiKeys}
+            />
+          );
+        })}
       </div>
     </section>
   );
