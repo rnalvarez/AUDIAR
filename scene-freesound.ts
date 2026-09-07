@@ -44,7 +44,7 @@ export async function searchFreesoundDiverse(
   const url = new URL(FREESOUND_SEARCH_ENDPOINT);
   url.searchParams.set("query", trimmedQuery);
   url.searchParams.set("token", apiKey);
-  url.searchParams.set("fields", "id,name,tags,duration,license,previews");
+  url.searchParams.set("fields", "id,name,tags,duration,license,previews,type,original_filename,samplerate,bitdepth,filesize");
   url.searchParams.set("page_size", String(Math.min(Math.max(maxResults * 4, 12), 50)));
   url.searchParams.set("page", String(Math.max(1, page)));
   url.searchParams.set("filter", 'license:("Creative Commons 0" OR "Attribution")');
@@ -68,6 +68,11 @@ export async function searchFreesoundDiverse(
         durationSeconds: typeof item.duration === "number" ? item.duration : 0,
         previewUrl: item.previews?.["preview-hq-mp3"] ?? item.previews?.["preview-lq-mp3"] ?? "",
         freesoundUrl: `https://freesound.org/s/${item.id}/`,
+        originalFilename: typeof item.original_filename === "string" ? item.original_filename : undefined,
+        originalType: typeof item.type === "string" ? item.type : undefined,
+        sampleRate: typeof item.samplerate === "number" ? item.samplerate : undefined,
+        bitDepth: typeof item.bitdepth === "number" ? item.bitdepth : undefined,
+        fileSize: typeof item.filesize === "number" ? item.filesize : undefined,
         tags: Array.isArray(item.tags) ? item.tags.map((tag: unknown) => String(tag)) : [],
       };
     })
