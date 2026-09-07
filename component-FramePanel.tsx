@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Layer, ProposalCategory, SceneAnalysis } from "./types";
+import type { Layer, SoundtrackElement, SceneAnalysis } from "./types";
 import type { ApiKeys } from "./api-keys";
 import { analyzeFrameSceneDirect } from "./direct-vision-v2";
 import { searchFreesoundDiverse } from "./scene-freesound";
@@ -13,7 +13,7 @@ type FreesoundItem = Awaited<ReturnType<typeof searchFreesoundDiverse>>[number];
 
 interface Props {
   apiKeys: ApiKeys;
-  onDesignGenerated: (layers: Partial<Record<ProposalCategory, Layer[]>>) => void;
+  onDesignGenerated: (layers: Partial<Record<SoundtrackElement, Layer[]>>) => void;
 }
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -25,7 +25,7 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-function resultToLayer(category: ProposalCategory, searchQuery: string, result: FreesoundItem): Layer {
+function resultToLayer(category: SoundtrackElement, searchQuery: string, result: FreesoundItem): Layer {
   return {
     id: `freesound-${category}-${result.id}-${crypto.randomUUID()}`,
     name: result.name,
@@ -146,7 +146,7 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
 
   async function buildAutomaticDesign(dataUrl: string) {
     const analysis = await analyzeFrameSceneDirect(dataUrl, apiKeys.groq!);
-    const generated: Partial<Record<ProposalCategory, Layer[]>> = {};
+    const generated: Partial<Record<SoundtrackElement, Layer[]>> = {};
     const cuesByCategory: Record<AutoCategory, SceneAnalysis["ambience"]> = {
       ambientes: analysis.ambience,
       efectos: analysis.effects,
