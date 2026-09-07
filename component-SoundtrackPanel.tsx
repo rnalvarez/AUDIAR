@@ -66,6 +66,7 @@ export function SoundtrackPanel({
         audioUrl: r.previewUrl,
         freesoundUrl: r.freesoundUrl,
         tags: r.tags,
+        searchQuery: search.trim(),
         gainDb: 0,
         pan: 0,
         muted: false,
@@ -121,6 +122,7 @@ export function SoundtrackPanel({
             onToggleSelect={() => onToggleSelect(layer.id)}
             onChange={(patch) => updateLayer(layer.id, patch)}
             onRemove={() => removeLayer(layer.id)}
+            apiKeys={apiKeys}
           />
         ))}
       </div>
