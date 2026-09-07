@@ -1,0 +1,13 @@
+{
+  "name": "audiar-reaper-bridge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-strip-types index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}
