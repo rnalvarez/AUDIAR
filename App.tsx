@@ -48,6 +48,15 @@ export default function App() {
     });
   }
 
+  function setCategorySelection(elementId: SoundtrackElement, selectAll: boolean) {
+    const ids = layers[elementId].map((layer) => layer.id);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => (selectAll ? next.add(id) : next.delete(id)));
+      return next;
+    });
+  }
+
   const selectedLayers = ELEMENTS.flatMap(({ id }) =>
     layers[id].filter((layer) => selectedIds.has(layer.id)).map((layer) => ({ layer, element: id }))
   );
@@ -82,6 +91,7 @@ export default function App() {
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
             onSelectIds={selectIds}
+            onSetCategorySelection={(selectAll) => setCategorySelection(id, selectAll)}
             globalSoloActive={globalSoloActive}
           />
         ))}
