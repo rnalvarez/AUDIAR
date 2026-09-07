@@ -3,7 +3,7 @@
 // También gestiona OAuth2 de Freesound y descarga el archivo original cuando está autorizado.
 
 import { createServer } from "node:http";
-import { mkdir, writeFile, readFile, rename, unlink } from "node:fs/promises";
+import { mkdir, writeFile, readFile, rename, unlink, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -121,6 +121,17 @@ function extensionFromOriginal(type: unknown, originalFilename: unknown): string
   return extensions[value] ?? ".wav";
 }
 
+async function findCachedOriginal(sound: IncomingSound): Promise<string | null> {
+  const prefix = `${safeBaseName(sound.id)}-original.`;
+  try {
+    const entries = await readdir(CACHE_DIR);
+    const match = entries.find((entry) => entry.startsWith(prefix));
+    return match ? path.join(CACHE_DIR, match) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function exchangeCode(code: string): Promise<OAuthStore> {
   const store = await loadOAuthStore();
   if (!store.clientId || !store.clientSecret) throw new Error("Faltan Client ID/Secret de Freesound.");
@@ -228,12 +239,19 @@ async function downloadPreview(sound: IncomingSound): Promise<string> {
 }
 
 async function downloadAudio(sound: IncomingSound): Promise<{ path: string; originalUsed: boolean }> {
+  // 1) Never hit the network for a sound whose original is already cached.
+  const cachedOriginal = await findCachedOriginal(sound);
+  if (cachedOriginal) return { path: cachedOriginal, originalUsed: true };
+
+  // 2) No original cached: try to obtain the original from Freesound.
   try {
     const original = await downloadOriginalFromFreesound(sound);
     if (original) return { path: original, originalUsed: true };
   } catch (error) {
     console.warn(`[AUDIAR Bridge] No se pudo obtener original: ${sound.name}`, error);
   }
+
+  // 3) Fall back to the preview; downloadPreview() itself is cache-aware.
   return { path: await downloadPreview(sound), originalUsed: false };
 }
 
