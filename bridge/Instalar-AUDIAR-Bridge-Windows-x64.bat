@@ -13,30 +13,30 @@ set "REPO_ZIP=https://github.com/rnalvarez/AUDIAR/archive/refs/heads/main.zip"
 set "REAPER_SCRIPTS=%APPDATA%\REAPER\Scripts\AUDIAR"
 set "LAUNCHER=%INSTALL_DIR%\Iniciar-AUDIAR-Bridge.bat"
 
-> "%LOG%" echo [AUDIAR] Instalacion iniciada %date% %time%
+> "%LOG%" echo [AUDIAR] Actualizacion/instalacion iniciada %date% %time%
 call :main
 set "RC=%errorlevel%"
 echo.
 if "%RC%"=="0" (
   echo ============================================================
-  echo INSTALACION COMPLETADA
+  echo INSTALACION / ACTUALIZACION COMPLETADA
   echo ============================================================
   echo.
   echo Bridge instalado en:
   echo   %INSTALL_DIR%
   echo.
-  echo Script de REAPER:
+  echo Script actualizado de REAPER:
   echo   %REAPER_SCRIPTS%\audiar-bridge.lua
   echo.
-  echo Se creo un acceso directo:
-  echo   AUDIAR REAPER Bridge
+  echo Se actualizo el Bridge para:
+  echo   - importar cada sonido en su propia pista
+  echo   - colorear las pistas por categoria
+  echo   - procesar el polling de REAPER con mayor rapidez
   echo.
-  echo Siguiente paso:
-  echo   En REAPER: Actions ^> Show action list
-  echo   ^> New action... ^> Load ReaScript...
-  echo   y elegi el archivo Lua indicado arriba.
+  echo IMPORTANTE:
+  echo   Si REAPER ya tenia cargado el Lua anterior, detenelo y volve a
+  echo   cargar/ejecutar la nueva copia desde Actions ^> Show action list.
   echo.
-  echo Despues, inicia "AUDIAR REAPER Bridge" desde el escritorio.
 ) else (
   echo ============================================================
   echo LA INSTALACION NO TERMINO CORRECTAMENTE
@@ -53,7 +53,6 @@ pause
 exit /b %RC%
 
 :main
-rem --- Detectar arquitectura ---
 set "ARCH=%PROCESSOR_ARCHITECTURE%"
 if defined PROCESSOR_ARCHITEW6432 set "ARCH=%PROCESSOR_ARCHITEW6432%"
 if /I not "%ARCH%"=="AMD64" (
@@ -61,14 +60,12 @@ if /I not "%ARCH%"=="AMD64" (
   exit /b 10
 )
 
-rem --- Comprobar PowerShell ---
 where powershell.exe >nul 2>&1
 if errorlevel 1 (
   call :fail 11 "No se encontro PowerShell."
   exit /b 11
 )
 
-rem --- Detectar / elevar a administrador ---
 net session >nul 2>&1
 if errorlevel 1 (
   echo.
@@ -87,7 +84,6 @@ if errorlevel 1 (
 echo [AUDIAR] Ejecutando como administrador.
 >> "%LOG%" echo [AUDIAR] Ejecutando como administrador.
 
-rem --- Detectar Node.js ---
 set "NODE_EXE="
 if exist "%ProgramFiles%\nodejs\node.exe" set "NODE_EXE=%ProgramFiles%\nodejs\node.exe"
 if not defined NODE_EXE (
@@ -136,7 +132,6 @@ if defined NODE_EXE (
   echo Node.js instalado: !NODE_INSTALLED!
 )
 
-rem --- Descargar AUDIAR ---
 echo.
 echo Descargando AUDIAR...
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -172,15 +167,18 @@ if not exist "%REPO_DIR%\bridge\package.json" (
   call :fail 34 "No se encontro bridge\package.json."
   exit /b 34
 )
-
 if not exist "%REPO_DIR%\bridge\index.ts" (
   call :fail 35 "No se encontro bridge\index.ts."
   exit /b 35
 )
+if not exist "%REPO_DIR%\bridge\audiar-bridge.lua" (
+  call :fail 36 "No se encontro bridge\audiar-bridge.lua."
+  exit /b 36
+)
 
-rem --- Instalar archivos del Bridge ---
+rem --- Reemplazar la copia local por la version actual del repositorio ---
 echo.
-echo Instalando AUDIAR REAPER Bridge...
+echo Actualizando AUDIAR REAPER Bridge...
 if exist "%INSTALL_DIR%" rmdir /s /q "%INSTALL_DIR%"
 mkdir "%INSTALL_DIR%" >nul 2>&1
 xcopy "%REPO_DIR%\bridge\*" "%INSTALL_DIR%\" /E /I /Y >nul
@@ -198,14 +196,10 @@ if errorlevel 1 (
   exit /b 41
 )
 
-rem --- Instalar ReaScript ---
+rem --- Instalar ReaScript actualizado ---
 echo.
-echo Instalando script de REAPER...
+echo Actualizando script de REAPER...
 mkdir "%REAPER_SCRIPTS%" >nul 2>&1
-if not exist "%INSTALL_DIR%\audiar-bridge.lua" (
-  call :fail 50 "No se encontro audiar-bridge.lua."
-  exit /b 50
-)
 copy /Y "%INSTALL_DIR%\audiar-bridge.lua" "%REAPER_SCRIPTS%\audiar-bridge.lua" >nul
 if errorlevel 1 (
   call :fail 51 "No se pudo copiar el ReaScript a la carpeta de REAPER."
@@ -236,7 +230,6 @@ if not exist "%LAUNCHER%" (
   exit /b 60
 )
 
-rem --- Acceso directo ---
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ws=New-Object -ComObject WScript.Shell; $sc=$ws.CreateShortcut([Environment]::GetFolderPath('Desktop')+'\AUDIAR REAPER Bridge.lnk'); $sc.TargetPath='%LAUNCHER%'; $sc.WorkingDirectory='%INSTALL_DIR%'; $sc.IconLocation='%SystemRoot%\System32\SHELL32.dll,137'; $sc.Save()"
 if errorlevel 1 (
@@ -244,15 +237,13 @@ if errorlevel 1 (
   >> "%LOG%" echo [AUDIAR] Aviso: no se pudo crear acceso directo.
 )
 
-rem --- Copiar README ---
 if exist "%REPO_DIR%\bridge\README.md" copy /Y "%REPO_DIR%\bridge\README.md" "%INSTALL_DIR%\README.md" >nul
 
-rem --- Limpiar ---
 del /q "%ZIP_FILE%" >nul 2>&1
 del /q "%NODE_MSI%" >nul 2>&1
 rmdir /s /q "%EXTRACT_DIR%" >nul 2>&1
 
->> "%LOG%" echo [AUDIAR] Instalacion completada %date% %time%
+>> "%LOG%" echo [AUDIAR] Instalacion/actualizacion completada %date% %time%
 exit /b 0
 
 :fail
