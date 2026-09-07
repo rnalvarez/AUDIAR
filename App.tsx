@@ -51,6 +51,7 @@ export default function App() {
   const selectedLayers = ELEMENTS.flatMap(({ id }) =>
     layers[id].filter((layer) => selectedIds.has(layer.id)).map((layer) => ({ layer, element: id }))
   );
+  const globalSoloActive = ELEMENTS.some(({ id }) => layers[id].some((layer) => layer.solo));
 
   return (
     <div className="app">
@@ -81,6 +82,7 @@ export default function App() {
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
             onSelectIds={selectIds}
+            globalSoloActive={globalSoloActive}
           />
         ))}
       </div>
