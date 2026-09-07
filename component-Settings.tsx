@@ -29,9 +29,7 @@ export function Settings({ apiKeys, onSave }: Props) {
       .then((data) => {
         if (active) setOauth(data);
       })
-      .catch(() => {
-        // El bridge puede no estar iniciado todavía.
-      });
+      .catch(() => undefined);
     return () => {
       active = false;
     };
@@ -49,11 +47,14 @@ export function Settings({ apiKeys, onSave }: Props) {
   async function connectFreesound() {
     setOauthBusy(true);
     setOauthMessage(null);
+    let messageHandler: ((event: MessageEvent) => void) | null = null;
+    let timeoutId: number | null = null;
     try {
       const clientId = freesoundClientId.trim();
       const clientSecret = freesoundClientSecret.trim();
-      if (!clientId || !clientSecret) {
-        throw new Error("Cargá Client ID y Client Secret de Freesound.");
+      if (!clientId) throw new Error("Cargá el Client ID de Freesound.");
+      if (!clientSecret && !oauth.configured) {
+        throw new Error("En la primera conexión también hace falta el Client Secret.");
       }
 
       onSave({
@@ -62,13 +63,16 @@ export function Settings({ apiKeys, onSave }: Props) {
         groq: groq.trim() || undefined,
       });
 
-      const configuredResponse = await fetch(`${BRIDGE_URL}/oauth/configure`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId, clientSecret }),
-      });
-      const configuredData = await configuredResponse.json().catch(() => ({}));
-      if (!configuredResponse.ok) throw new Error(configuredData.error ?? "No se pudieron guardar las credenciales OAuth en el bridge.");
+      if (clientSecret || !oauth.configured) {
+        const configuredResponse = await fetch(`${BRIDGE_URL}/oauth/configure`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId, clientSecret: clientSecret || undefined }),
+        });
+        const configuredData = await configuredResponse.json().catch(() => ({}));
+        if (!configuredResponse.ok) throw new Error(configuredData.error ?? "No se pudieron guardar las credenciales OAuth en el bridge.");
+        setOauth((current) => ({ ...current, configured: true }));
+      }
 
       const startResponse = await fetch(`${BRIDGE_URL}/oauth/start`);
       const startData = await startResponse.json().catch(() => ({}));
@@ -82,33 +86,36 @@ export function Settings({ apiKeys, onSave }: Props) {
         return;
       }
 
-      const onMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-        if (event.data?.source !== "audiar-freesound-oauth") return;
-        window.removeEventListener("message", onMessage);
+      messageHandler = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin || event.data?.source !== "audiar-freesound-oauth") return;
+        if (messageHandler) window.removeEventListener("message", messageHandler);
+        if (timeoutId !== null) window.clearTimeout(timeoutId);
         if (event.data.ok) {
           setOauth({ connected: true, configured: true, expiresAt: event.data.expiresAt });
-          setOauthMessage("Freesound conectado. Los originales estarán disponibles al enviar a REAPER.");
+          setOauthMessage("Freesound conectado. Los próximos envíos a REAPER usarán el archivo original cuando esté disponible.");
         } else {
           setOauthMessage(event.data.error ?? "No se pudo completar la autorización.");
         }
         setOauthBusy(false);
         setFreesoundClientSecret("");
       };
-      window.addEventListener("message", onMessage);
+      window.addEventListener("message", messageHandler);
 
-      const timeout = window.setTimeout(() => {
-        window.removeEventListener("message", onMessage);
+      timeoutId = window.setTimeout(() => {
+        if (messageHandler) window.removeEventListener("message", messageHandler);
         setOauthBusy(false);
         void fetch(`${BRIDGE_URL}/oauth/status`)
           .then((res) => res.json())
           .then((data) => setOauth(data))
           .catch(() => undefined);
+        setFreesoundClientSecret("");
       }, 120000);
-      void timeout;
     } catch (error: any) {
       setOauthMessage(error?.message ?? "No se pudo conectar con Freesound.");
       setOauthBusy(false);
+      setFreesoundClientSecret("");
+      if (messageHandler) window.removeEventListener("message", messageHandler);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
     }
   }
 
@@ -137,9 +144,7 @@ export function Settings({ apiKeys, onSave }: Props) {
     void disconnectFreesound();
   }
 
-  const expiryLabel = oauth.expiresAt
-    ? new Date(oauth.expiresAt).toLocaleString()
-    : "";
+  const expiryLabel = oauth.expiresAt ? new Date(oauth.expiresAt).toLocaleString() : "";
 
   return (
     <div className="settings">
@@ -167,15 +172,13 @@ export function Settings({ apiKeys, onSave }: Props) {
             </label>
             <label className="settings__field">
               <span>Freesound Client Secret</span>
-              <input type="password" value={freesoundClientSecret} onChange={(e) => setFreesoundClientSecret(e.target.value)} placeholder="solo para conectar" autoComplete="off" />
+              <input type="password" value={freesoundClientSecret} onChange={(e) => setFreesoundClientSecret(e.target.value)} placeholder={oauth.configured ? "guardado en el bridge local" : "solo para la primera conexión"} autoComplete="off" />
             </label>
             <div className="settings__actions">
               <button className="settings__save-btn" onClick={connectFreesound} disabled={oauthBusy}>
                 {oauthBusy ? "Conectando..." : oauth.connected ? "Reconectar con Freesound" : "Conectar con Freesound"}
               </button>
-              {oauth.connected && (
-                <button className="settings__clear-btn" onClick={disconnectFreesound} disabled={oauthBusy}>Desconectar</button>
-              )}
+              {oauth.connected && <button className="settings__clear-btn" onClick={disconnectFreesound} disabled={oauthBusy}>Desconectar</button>}
             </div>
             <p className="settings__hint">
               Estado: {oauth.connected ? `conectado${expiryLabel ? ` · token válido hasta ${expiryLabel}` : ""}` : oauth.configured ? "credenciales configuradas, falta autorizar" : "no conectado"}
