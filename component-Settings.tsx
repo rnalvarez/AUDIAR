@@ -6,27 +6,26 @@ interface Props {
   onSave: (keys: ApiKeys) => void;
 }
 
-/**
- * "Al comienzo" de la app, como pediste. Guardar acá hace que FramePanel,
- * SoundDesignProposalPanel y SoundtrackPanel llamen a Freesound/Groq
- * directo desde el navegador (ver direct-providers.ts) en vez de pegarle
- * al Worker — pensado para uso personal, con las keys guardadas solo en
- * este navegador (localStorage), nunca en un servidor propio.
- */
 export function Settings({ apiKeys, onSave }: Props) {
   const [open, setOpen] = useState(!apiKeys.freesound && !apiKeys.groq);
   const [freesound, setFreesound] = useState(apiKeys.freesound ?? "");
+  const [freesoundAccessToken, setFreesoundAccessToken] = useState(apiKeys.freesoundAccessToken ?? "");
   const [groq, setGroq] = useState(apiKeys.groq ?? "");
 
-  const configured = !!apiKeys.freesound || !!apiKeys.groq;
+  const configured = !!apiKeys.freesound || !!apiKeys.groq || !!apiKeys.freesoundAccessToken;
 
   function handleSave() {
-    onSave({ freesound: freesound.trim() || undefined, groq: groq.trim() || undefined });
+    onSave({
+      freesound: freesound.trim() || undefined,
+      freesoundAccessToken: freesoundAccessToken.trim() || undefined,
+      groq: groq.trim() || undefined,
+    });
     setOpen(false);
   }
 
   function handleClear() {
     setFreesound("");
+    setFreesoundAccessToken("");
     setGroq("");
     onSave({});
   }
@@ -40,9 +39,8 @@ export function Settings({ apiKeys, onSave }: Props) {
       {open && (
         <div className="settings__panel">
           <p className="settings__hint">
-            Cargá tus propias claves para usar AUDIAR directo desde el navegador, sin correr ni desplegar el Worker.
-            Quedan guardadas solo en este navegador — pensado para uso personal, no para compartir el link con otras
-            personas.
+            Las credenciales quedan guardadas solo en este navegador. El token OAuth de Freesound es opcional: sin él,
+            AUDIAR usa el preview MP3; con él, al enviar a REAPER el bridge local intenta descargar el archivo original.
           </p>
 
           <label className="settings__field">
@@ -55,6 +53,21 @@ export function Settings({ apiKeys, onSave }: Props) {
               autoComplete="off"
             />
           </label>
+
+          <label className="settings__field">
+            <span>Freesound OAuth access token (opcional)</span>
+            <input
+              type="password"
+              value={freesoundAccessToken}
+              onChange={(e) => setFreesoundAccessToken(e.target.value)}
+              placeholder="pegar token OAuth"
+              autoComplete="off"
+            />
+          </label>
+
+          <p className="settings__hint">
+            El acceso al archivo original de Freesound requiere OAuth2. Los tokens tienen una duración limitada.
+          </p>
 
           <label className="settings__field">
             <span>Groq API key</span>
