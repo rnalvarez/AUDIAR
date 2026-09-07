@@ -14,6 +14,11 @@ export interface SendableSound {
   pan?: number;
   license?: string;
   source?: string;
+  originalFilename?: string;
+  originalType?: string;
+  sampleRate?: number;
+  bitDepth?: number;
+  fileSize?: number;
 }
 
 function elementLabel(element: SoundtrackElement): string {
@@ -38,6 +43,11 @@ export function layerToSendableSound(layer: Layer, element: SoundtrackElement): 
     pan: layer.pan,
     license: layer.license,
     source: layer.id.split("-")[0],
+    originalFilename: layer.originalFilename,
+    originalType: layer.originalType,
+    sampleRate: layer.sampleRate,
+    bitDepth: layer.bitDepth,
+    fileSize: layer.fileSize,
   };
 }
 
