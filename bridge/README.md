@@ -1,68 +1,71 @@
 # AUDIAR REAPER Bridge
 
-Deja enviar sonidos desde AUDIAR directo a un proyecto de REAPER. Corre 100% en tu máquina — el bridge y el script de REAPER son locales.
+Este componente permite que AUDIAR envíe los sonidos seleccionados directamente a REAPER.
 
-## Cómo funciona
+## Instalación y actualización
 
-AUDIAR envía un pedido al bridge local. El bridge descarga los audios y deja jobs en una carpeta que `audiar-bridge.lua` vigila desde REAPER. El script Lua crea las pistas e inserta los sonidos.
+En Windows ejecutá:
 
-## Instalación / actualización
+```text
+Instalar-AUDIAR-Bridge-Windows-x64.bat
+```
 
-Ejecutá el instalador de Windows `Instalar-AUDIAR-Bridge-Windows-x64.bat`. En una actualización, el instalador reemplaza también el ReaScript dentro de la carpeta de REAPER.
+El instalador actualiza el Bridge y el script de REAPER. No elimina la conexión OAuth de Freesound ni la cache de archivos ya descargados.
 
-Después, en REAPER: **Actions → Show action list → New action... → Load ReaScript...** y elegí:
+Después iniciá **AUDIAR REAPER Bridge** desde el acceso directo creado en el escritorio.
+
+En REAPER cargá una vez:
 
 ```text
 %APPDATA%\REAPER\Scripts\AUDIAR\audiar-bridge.lua
 ```
 
-Si ya había una instancia anterior cargada, detenela y ejecutá la nueva versión. Para dejarla permanente, usá **Run on startup**.
+Desde **Actions → Show action list → Load ReaScript...**.
 
-El bridge se inicia desde el acceso directo **AUDIAR REAPER Bridge** que crea el instalador.
+Podés usar **Run on startup** para ejecutarlo automáticamente al iniciar REAPER.
 
-## Freesound: archivo original
+## Freesound y archivos originales
 
-AUDIAR usa los previews MP3 para escuchar rápidamente. Para enviar el archivo original a REAPER, la conexión OAuth2 de Freesound debe estar autorizada.
+Para buscar sonidos, AUDIAR necesita una **Freesound API key**.
 
-En la pantalla **API keys** de AUDIAR:
+Para enviar el archivo original a REAPER, además necesitás autorizar Freesound mediante OAuth desde **Configurar API keys** en AUDIAR.
 
-1. Colocá tu **Freesound API key**.
-2. Colocá el **Freesound Client ID** de tu aplicación.
-3. En la primera conexión, colocá también el **Freesound Client Secret**.
-4. Presioná **Conectar con Freesound** y autorizá la aplicación en Freesound.
+La conexión OAuth utiliza:
 
-La Redirect URI que debe estar registrada en la aplicación de Freesound es:
+- Freesound Client ID
+- Freesound Client Secret
+- autorización de tu cuenta de Freesound
+
+El Client Secret y los tokens OAuth se guardan solamente en el Bridge local.
+
+La Callback URL de la aplicación AUDIAR en Freesound es:
 
 ```text
 https://rnalvarez.github.io/AUDIAR/freesound-oauth.html
 ```
 
-Después de la primera autorización, el Client Secret y los tokens OAuth quedan guardados únicamente en el bridge local. AUDIAR Pages no los persiste. El bridge renueva automáticamente el access token usando el refresh token cuando es necesario.
+Una vez conectado, el Bridge intenta descargar el archivo original. Se conserva el formato original del sonido.
 
-Freesound usa el flujo OAuth2 authorization-code: el código es temporal y se intercambia una sola vez por `access_token` y `refresh_token`. El endpoint de descarga OAuth entrega el sonido en su formato/calidad original. Ver documentación oficial de Freesound: https://freesound.org/docs/api/authentication.html
+## Cache
 
-## Organización en REAPER
+Los sonidos descargados se guardan localmente. Si el original ya está en cache, vuelve a REAPER sin necesidad de conectarse nuevamente a Freesound.
 
-Cada sonido enviado crea **su propia pista**. El nombre de la pista es el nombre del sonido.
+Los archivos grandes tardan lo que tarde su descarga. El Bridge descarga varios sonidos en paralelo y escribe los datos directamente en disco.
 
-Colores automáticos:
+## REAPER
 
-- **Ambientes:** azul.
-- **SFX:** naranja.
-- **Foley:** verde.
+Cada sonido enviado crea una pista independiente.
+
+- Ambientes: azul
+- SFX: naranja
+- Foley: verde
 
 El volumen y paneo configurados en AUDIAR se aplican al ítem importado.
 
-## Rendimiento
+## Problemas habituales
 
-Las descargas de un lote se ejecutan en paralelo. Cada sonido genera su propio job apenas termina de descargarse, por lo que REAPER no necesita esperar al archivo más largo del lote.
+**AUDIAR no encuentra el Bridge:** iniciá **AUDIAR REAPER Bridge**.
 
-## Qué NO hace esta versión
+**Los archivos llegan al Bridge pero no aparecen en REAPER:** verificá que `audiar-bridge.lua` esté ejecutándose.
 
-Sin timeline, sin sincronización con video, sin fades, sin automatización, sin render y sin stems — REAPER sigue siendo donde se edita y mezcla de verdad.
-
-## Solución de problemas
-
-- **"No se encontró REAPER Bridge"**: el bridge no está corriendo.
-- **Los archivos están en `cache` pero no aparecen en REAPER**: verificá que `audiar-bridge.lua` esté ejecutándose y mirá la consola de REAPER.
-- **Todos los archivos son MP3 aunque OAuth esté configurado**: mirá la consola del bridge. Cada descarga informa `[ORIGINAL]` o `[preview]`. Si aparece `[preview]`, la autorización OAuth no está disponible o el original no pudo descargarse.
+**Se usa una preview en lugar del original:** revisá que Freesound figure como conectado en AUDIAR y que el original esté disponible para descarga.
