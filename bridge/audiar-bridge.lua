@@ -48,7 +48,7 @@ local function dbToLinear(db)
   return 10 ^ (db / 20)
 end
 
-local function insertSound(sound)
+local function insertSound(sound, insertPosition)
   local ok, err = pcall(function()
     local track = createTrack(sound)
     local src = reaper.PCM_Source_CreateFromFileEx(sound.path, false)
@@ -61,7 +61,7 @@ local function insertSound(sound)
     local item = reaper.AddMediaItemToTrack(track)
     local take = reaper.AddTakeToMediaItem(item)
     reaper.SetMediaItemTake_Source(take, src)
-    reaper.SetMediaItemInfo_Value(item, "D_POSITION", 0.0)
+    reaper.SetMediaItemInfo_Value(item, "D_POSITION", insertPosition)
     reaper.SetMediaItemInfo_Value(item, "D_LENGTH", srcLen)
 
     if type(sound.gainDb) == "number" then
@@ -109,17 +109,22 @@ local function processJobFile(filename)
     return
   end
 
+  -- El punto de inserción es el cursor de edición actual de REAPER.
+  -- Se captura una sola vez para que todos los sonidos del mismo envío
+  -- queden alineados en exactamente la misma posición.
+  local insertPosition = reaper.GetCursorPosition()
+
   reaper.Undo_BeginBlock()
   reaper.PreventUIRefresh(1)
   for _, sound in ipairs(job) do
-    insertSound(sound)
+    insertSound(sound, insertPosition)
   end
   reaper.PreventUIRefresh(-1)
   reaper.Undo_EndBlock("AUDIAR: insertar sonidos enviados", -1)
   reaper.UpdateArrange()
 
   os.remove(fullPath)
-  log("Procesado: " .. filename .. " (" .. #job .. " sonido/s)")
+  log("Procesado: " .. filename .. " (" .. #job .. " sonido/s) en " .. string.format("%.3f s", insertPosition))
 end
 
 local function ensureJobsDir()
