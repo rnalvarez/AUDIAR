@@ -1,10 +1,12 @@
 export type SoundtrackElement = "ambientes" | "efectos" | "foley" | "dialogos";
 
+// La interfaz pública de AUDIAR trabaja con tres familias sonoras.
+// "dialogos" se mantiene en los tipos internos para compatibilidad con
+// el motor de propuestas anterior, pero no se muestra ni se genera como capa.
 export const ELEMENTS: { id: SoundtrackElement; label: string; hint: string }[] = [
-  { id: "ambientes", label: "Ambientes", hint: "fondo continuo" },
-  { id: "efectos", label: "Efectos", hint: "sonidos puntuales" },
-  { id: "foley", label: "Foley", hint: "sincronizado a imagen" },
-  { id: "dialogos", label: "Diálogos", hint: "voces" },
+  { id: "ambientes", label: "Ambientes", hint: "hasta 3 capas" },
+  { id: "efectos", label: "SFX", hint: "hasta 3 capas" },
+  { id: "foley", label: "Foley", hint: "hasta 3 capas" },
 ];
 
 export interface Layer {
@@ -16,9 +18,9 @@ export interface Layer {
   audioUrl: string;
   freesoundUrl?: string;
   tags?: string[];
-  // Editor state (channel strip) — client-side only for now.
+  searchQuery?: string;
   gainDb: number;
-  pan: number; // -1..1
+  pan: number;
   muted: boolean;
   solo: boolean;
 }
@@ -60,32 +62,21 @@ export interface FreesoundResultItem {
   previewUrl: string;
   freesoundUrl?: string;
   tags?: string[];
-  // true una vez que este resultado puntual se agregó como Layer — no
-  // implica que la SoundIdea "esté resuelta": pueden agregarse varias
-  // alternativas de la misma idea.
   added?: boolean;
 }
 
-/**
- * La intención de diseño sonoro ANTES de elegir un sonido concreto — no se
- * convierte en Layer por sí sola. Solo un resultado de búsqueda puntual,
- * agregado explícitamente ("Agregar a diseño"), se vuelve Layer.
- */
 export interface SoundIdea {
   id: string;
   category: ProposalCategory;
-  description: string; // en español — lo que ve y edita el usuario
+  description: string;
   rationale: string;
   certainty: Certainty;
   priority: Priority;
   spatialPerspective?: string;
-  searchQuery: string; // en inglés — editable, usado por "Buscar sonidos"
-  // Estado de búsqueda — client-side only, por idea.
+  searchQuery: string;
   searching?: boolean;
   searchError?: string;
   searchResults?: FreesoundResultItem[];
-  // Colapsado por defecto para que la tarjeta no se vea como un formulario;
-  // "editar" lo pone en true.
   expanded?: boolean;
 }
 
