@@ -10,7 +10,7 @@ import type {
   SoundIdea,
 } from "./types";
 import type { ApiKeys } from "./api-keys";
-import { generateProposalDirect, searchFreesoundDirect } from "./direct-providers";
+import { generateSoundDesignProposalDirect, searchFreesoundDirect } from "./direct-providers";
 
 const CATEGORY_LABEL: Record<ProposalCategory, string> = {
   ambientes: "Ambientes",
@@ -42,7 +42,7 @@ function emptyIdea(category: ProposalCategory): SoundIdea {
     certainty: "possible",
     priority: "secondary",
     searchQuery: "",
-    expanded: true, // recién creada y vacía: hay que poder escribir de una
+    expanded: true,
   };
 }
 
@@ -55,6 +55,7 @@ function resultToLayer(result: FreesoundResultItem): Layer {
     durationSeconds: result.durationSeconds,
     audioUrl: result.previewUrl,
     freesoundUrl: result.freesoundUrl,
+    tags: result.tags,
     gainDb: 0,
     pan: 0,
     muted: false,
@@ -73,32 +74,6 @@ interface Props {
   apiKeys: ApiKeys;
 }
 
-/**
- * Segunda etapa (SceneAnalysis -> SoundDesignProposal) + tercera etapa
- * (searchQuery -> Freesound) + el puente a Layer, en un solo componente
- * porque buscar y agregar son acciones por-idea, no pasos aparte del
- * pipeline.
- *
- * Dos conceptos separados a propósito: una SoundIdea es la intención de
- * diseño (puede no tener sonido todavía); un Layer es el sonido concreto
- * ya elegido. Una idea NUNCA se convierte en Layer sola — solo un
- * resultado de Freesound puntual, agregado a mano con "Agregar a diseño",
- * se vuelve Layer. La misma idea puede producir varios Layers alternativos
- * si el usuario agrega más de un resultado.
- *
- * Cada tarjeta arranca colapsada (solo descripción + etiqueta + "editar" +
- * "Buscar sonidos") para que no se vea como un formulario técnico; "editar"
- * revela rationale/prioridad/perspectiva/searchQuery. El plegado y el
- * "agregada" de cada resultado reusan el mismo updateItem que ya existía
- * — no hay un Set/Map aparte para ese estado.
- *
- * "Buscar sonidos" llama directamente a Freesound mediante direct-providers.ts. "Agregar a diseño" arma el Layer con el mismo
- * criterio que ya usaba SoundtrackPanel (mismo esquema de id
- * "freesound-<id>"), y App.tsx descarta duplicados antes de agregarlo a
- * layers — así no importa por qué panel entró un sonido, el chequeo es el
- * mismo. Soundly, Stable Audio y Groq TTS siguen sin conectar acá a
- * propósito.
- */
 export function SoundDesignProposalPanel({ analysis, onAddLayer, apiKeys }: Props) {
   const [proposal, setProposal] = useState<SoundDesignProposal | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -118,7 +93,7 @@ export function SoundDesignProposalPanel({ analysis, onAddLayer, apiKeys }: Prop
       if (!apiKeys.groq?.trim()) {
         throw new Error("Configurá la API key de Groq antes de generar la propuesta.");
       }
-      setProposal(await generateProposalDirect(analysis, apiKeys.groq));
+      setProposal(await generateSoundDesignProposalDirect(analysis, apiKeys.groq));
     } catch (e: any) {
       setError(e.message ?? "no se pudo generar la propuesta");
     } finally {
@@ -163,8 +138,6 @@ export function SoundDesignProposalPanel({ analysis, onAddLayer, apiKeys }: Prop
 
   function handleAddToDesign(category: ProposalCategory, idea: SoundIdea, result: FreesoundResultItem) {
     onAddLayer(category, resultToLayer(result));
-    // Marca solo ese resultado puntual como agregado — el resto de las
-    // alternativas de la misma idea siguen disponibles para comparar.
     setProposal((prev) => {
       if (!prev) return prev;
       return {
