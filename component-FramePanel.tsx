@@ -6,7 +6,7 @@ import { analyzeFrameDirect, searchFreesoundDirect } from "./direct-providers";
 const ACCEPTED_TYPES = "image/jpeg,image/png,image/webp";
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_AUTO_LAYERS = 3;
-const AUTO_CATEGORIES: ProposalCategory[] = ["ambientes", "efectos", "foley"];
+const AUTO_CATEGORIES = ["ambientes", "efectos", "foley"] as const;
 
 type AutoCategory = (typeof AUTO_CATEGORIES)[number];
 
