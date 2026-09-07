@@ -15,6 +15,7 @@ interface Props {
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onSelectIds: (ids: string[]) => void;
+  globalSoloActive: boolean;
 }
 
 export function SoundtrackPanel({
@@ -27,6 +28,7 @@ export function SoundtrackPanel({
   selectedIds,
   onToggleSelect,
   onSelectIds,
+  globalSoloActive,
 }: Props) {
   const [search, setSearch] = useState("");
   const [source, setSource] = useState<Source>("freesound");
@@ -126,24 +128,21 @@ export function SoundtrackPanel({
 
       <div className="panel__layers">
         {layers.length === 0 && !loading && <p className="panel__empty">sin capas todavía</p>}
-        {layers.map((layer) => {
-          const otherSoloActive = layers.some((candidate) => candidate.id !== layer.id && candidate.solo);
-          return (
-            <LayerStrip
-              key={layer.id}
-              layer={layer}
-              element={elementId}
-              selected={selectedIds.has(layer.id)}
-              otherSoloActive={otherSoloActive}
-              onToggleSelect={() => onToggleSelect(layer.id)}
-              onChange={(patch) => updateLayer(layer.id, patch)}
-              onRemove={() => removeLayer(layer.id)}
-              onAddResults={addResults}
-              onSelectIds={onSelectIds}
-              apiKeys={apiKeys}
-            />
-          );
-        })}
+        {layers.map((layer) => (
+          <LayerStrip
+            key={layer.id}
+            layer={layer}
+            element={elementId}
+            selected={selectedIds.has(layer.id)}
+            otherSoloActive={globalSoloActive && !layer.solo}
+            onToggleSelect={() => onToggleSelect(layer.id)}
+            onChange={(patch) => updateLayer(layer.id, patch)}
+            onRemove={() => removeLayer(layer.id)}
+            onAddResults={addResults}
+            onSelectIds={onSelectIds}
+            apiKeys={apiKeys}
+          />
+        ))}
       </div>
     </section>
   );
