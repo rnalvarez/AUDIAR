@@ -52,6 +52,98 @@ function cueSearchQuery(cue: { text: string }): string {
     .trim();
 }
 
+const SEARCH_TRANSLATIONS: Record<string, string> = {
+  pasos: "footsteps",
+  caminar: "walking",
+  caminando: "walking",
+  pisadas: "footsteps",
+  calle: "street",
+  urbano: "urban",
+  urbana: "urban",
+  ciudad: "city",
+  asfalto: "asphalt",
+  cemento: "concrete",
+  madera: "wood",
+  metal: "metal",
+  vidrio: "glass",
+  agua: "water",
+  lluvia: "rain",
+  mojado: "wet",
+  viento: "wind",
+  hojas: "leaves",
+  árbol: "tree",
+  arbol: "tree",
+  bosque: "forest",
+  mar: "sea",
+  río: "river",
+  rio: "river",
+  puerta: "door",
+  abrir: "open",
+  abrirse: "open",
+  cerrar: "close",
+  cerrarse: "close",
+  golpe: "impact",
+  golpes: "impacts",
+  motor: "engine",
+  auto: "car",
+  coche: "car",
+  vehículo: "vehicle",
+  vehiculo: "vehicle",
+  tráfico: "traffic",
+  trafico: "traffic",
+  tren: "train",
+  avión: "airplane",
+  avion: "airplane",
+  perro: "dog",
+  gato: "cat",
+  pájaro: "bird",
+  pajaro: "bird",
+  voz: "voice",
+  voces: "voices",
+  ropa: "cloth",
+  tela: "cloth",
+  papel: "paper",
+  habitación: "room",
+  habitacion: "room",
+  interior: "indoor",
+  exterior: "outdoor",
+  noche: "night",
+  día: "day",
+  dia: "day",
+  lejano: "distant",
+  lejana: "distant",
+  cercano: "close",
+  cercana: "close",
+  fuerte: "loud",
+  suave: "soft",
+};
+
+const SEARCH_STOPWORDS = new Set([
+  "a", "al", "ante", "bajo", "con", "contra", "de", "del", "desde", "en", "entre", "hacia", "hasta",
+  "la", "las", "el", "los", "un", "una", "unos", "unas", "por", "para", "sin", "sobre", "y", "o",
+  "que", "se", "su", "sus", "es", "son", "hay", "muy", "como", "más", "mas", "algo", "posible",
+  "probable", "observado", "possible", "probable", "observed", "sound", "sonido", "sonidos",
+]);
+
+function searchQueryVariants(query: string): string[] {
+  const cleaned = cueSearchQuery({ text: query });
+  const words = cleaned
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word) => word.replace(/[^\p{L}\p{N}-]/gu, ""))
+    .filter(Boolean);
+
+  const translated = words
+    .filter((word) => !SEARCH_STOPWORDS.has(word))
+    .map((word) => SEARCH_TRANSLATIONS[word] ?? word);
+
+  const generic = translated.filter((word, index) => translated.indexOf(word) === index).join(" ");
+  const focused = translated.slice(0, 4).filter((word, index) => translated.indexOf(word) === index).join(" ");
+  const shortest = translated.slice(0, 2).filter((word, index) => translated.indexOf(word) === index).join(" ");
+
+  return [...new Set([cleaned, generic, focused, shortest])].filter((value) => value.length > 0);
+}
+
 function uniqueCues(cues: SceneAnalysis["ambience"]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -63,6 +155,20 @@ function uniqueCues(cues: SceneAnalysis["ambience"]): string[] {
     result.push(query);
   }
   return result.slice(0, MAX_AUTO_LAYERS);
+}
+
+async function findFirstFreesoundResult(query: string, apiKey: string): Promise<{ query: string; result: FreesoundItem } | null> {
+  let lastError: unknown = null;
+  for (const variant of searchQueryVariants(query)) {
+    try {
+      const results = await searchFreesoundDirect(variant, apiKey, 5);
+      if (results[0]) return { query: variant, result: results[0] };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
 }
 
 export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
@@ -125,9 +231,8 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
 
       for (const query of queries) {
         try {
-          const results = await searchFreesoundDirect(query, apiKeys.freesound!, 5);
-          const first = results[0];
-          if (first) layers.push(resultToLayer(category, query, first));
+          const found = await findFirstFreesoundResult(query, apiKeys.freesound!);
+          if (found) layers.push(resultToLayer(category, found.query, found.result));
         } catch {
           // Una capa sin resultado no bloquea las demás.
         }
