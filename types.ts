@@ -59,6 +59,7 @@ export interface FreesoundResultItem {
   durationSeconds: number;
   previewUrl: string;
   freesoundUrl?: string;
+  tags?: string[];
   // true una vez que este resultado puntual se agregó como Layer — no
   // implica que la SoundIdea "esté resuelta": pueden agregarse varias
   // alternativas de la misma idea.
