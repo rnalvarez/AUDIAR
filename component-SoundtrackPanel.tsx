@@ -1,9 +1,8 @@
 import { useState } from "react";
 import type { FreesoundResultItem, Layer, SoundtrackElement } from "./types";
 import type { ApiKeys } from "./api-keys";
-import { searchFreesoundDirect } from "./direct-providers";
+import { searchFreesoundDiverse } from "./scene-freesound";
 import { LayerStrip } from "./component-LayerStrip";
-import { SourceSelector, type Source } from "./component-SourceSelector";
 
 interface Props {
   elementId: SoundtrackElement;
@@ -33,22 +32,27 @@ export function SoundtrackPanel({
   globalSoloActive,
 }: Props) {
   const [search, setSearch] = useState("");
-  const [source, setSource] = useState<Source>("freesound");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSearch() {
-    if (!search.trim()) return;
+    const query = search.trim();
+    if (!query) return;
+    if (!apiKeys.freesound?.trim()) {
+      setError("Configurá la API key de Freesound antes de buscar sonidos.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      if (source !== "freesound") {
-        setError(source === "soundly" ? "Soundly todavía no está conectado." : "Generado todavía no está conectado.");
-        return;
-      }
-      if (!apiKeys.freesound?.trim()) throw new Error("Configurá la API key de Freesound antes de buscar sonidos.");
-      const results = await searchFreesoundDirect(search, apiKeys.freesound);
-      addResults(results, search.trim());
+      const existingIds = new Set(
+        layers
+          .map((layer) => layer.freesoundId)
+          .filter((id): id is number => typeof id === "number")
+      );
+      const results = await searchFreesoundDiverse(query, apiKeys.freesound, 1, 12, existingIds);
+      addResults(results, query);
     } catch (e: any) {
       setError(e.message ?? "no se pudo buscar");
     } finally {
@@ -82,22 +86,23 @@ export function SoundtrackPanel({
 
   function addResults(results: FreesoundResultItem[], searchQuery = search.trim()): string[] {
     const existingSourceIds = new Set(
-      layers.map((layer) => {
-        const match = layer.freesoundUrl?.match(/\/s\/(\d+)\/?$/);
-        return match?.[1];
-      }).filter(Boolean)
+      layers
+        .map((layer) => layer.freesoundId)
+        .filter((id): id is number => typeof id === "number")
     );
-    const newLayers = results.filter((result) => !existingSourceIds.has(String(result.id))).map((result) => createLayer(result, searchQuery));
+    const newLayers = results
+      .filter((result) => !existingSourceIds.has(result.id))
+      .map((result) => createLayer(result, searchQuery));
     if (newLayers.length > 0) onLayersChange([...layers, ...newLayers]);
     return newLayers.map((layer) => layer.id);
   }
 
   function updateLayer(id: string, patch: Partial<Layer>) {
-    onLayersChange(layers.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+    onLayersChange(layers.map((layer) => (layer.id === id ? { ...layer, ...patch } : layer)));
   }
 
   function removeLayer(id: string) {
-    onLayersChange(layers.filter((l) => l.id !== id));
+    onLayersChange(layers.filter((layer) => layer.id !== id));
   }
 
   const selectedCount = layers.filter((layer) => selectedIds.has(layer.id)).length;
@@ -107,20 +112,52 @@ export function SoundtrackPanel({
     <section className="panel" aria-labelledby={`panel-${elementId}`}>
       <header className="panel__header">
         <div className="panel__header-main">
-          <div><h2 id={`panel-${elementId}`}>{label}</h2><span className="panel__hint">{hint}</span></div>
-          <button className={`panel__select-all ${allSelected ? "is-active" : ""}`} type="button" onClick={() => onSetCategorySelection(!allSelected)} disabled={layers.length === 0} aria-pressed={allSelected}>{allSelected ? "deseleccionar todos" : "seleccionar todos"}</button>
+          <div>
+            <h2 id={`panel-${elementId}`}>{label}</h2>
+            <span className="panel__hint">{hint}</span>
+          </div>
+          <button
+            className={`panel__select-all ${allSelected ? "is-active" : ""}`}
+            type="button"
+            onClick={() => onSetCategorySelection(!allSelected)}
+            disabled={layers.length === 0}
+            aria-pressed={allSelected}
+          >
+            {allSelected ? "deseleccionar todos" : "seleccionar todos"}
+          </button>
         </div>
       </header>
-      <SourceSelector value={source} onChange={setSource} />
+
       <div className="panel__search">
-        <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSearch()} placeholder="describí el sonido..." />
-        <button onClick={handleSearch} disabled={loading}>{loading ? "..." : "buscar"}</button>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          placeholder="describí el sonido..."
+        />
+        <button onClick={handleSearch} disabled={loading}>
+          {loading ? "..." : "buscar"}
+        </button>
       </div>
+
       {error && <p className="panel__error">{error}</p>}
+
       <div className="panel__layers">
         {layers.length === 0 && !loading && <p className="panel__empty">sin capas todavía</p>}
         {layers.map((layer) => (
-          <LayerStrip key={layer.id} layer={layer} element={elementId} selected={selectedIds.has(layer.id)} otherSoloActive={globalSoloActive && !layer.solo} onToggleSelect={() => onToggleSelect(layer.id)} onChange={(patch) => updateLayer(layer.id, patch)} onRemove={() => removeLayer(layer.id)} onAddResults={addResults} onSelectIds={onSelectIds} apiKeys={apiKeys} />
+          <LayerStrip
+            key={layer.id}
+            layer={layer}
+            element={elementId}
+            selected={selectedIds.has(layer.id)}
+            otherSoloActive={globalSoloActive && !layer.solo}
+            onToggleSelect={() => onToggleSelect(layer.id)}
+            onChange={(patch) => updateLayer(layer.id, patch)}
+            onRemove={() => removeLayer(layer.id)}
+            onAddResults={addResults}
+            onSelectIds={onSelectIds}
+            apiKeys={apiKeys}
+          />
         ))}
       </div>
     </section>
