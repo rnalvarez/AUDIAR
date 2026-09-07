@@ -1,11 +1,13 @@
 import { useState } from "react";
 import type { Layer, SoundtrackElement } from "./types";
 import { layerToSendableSound, sendToReaperBridge } from "./reaper-bridge";
+import type { ApiKeys } from "./api-keys";
 
 type SendState = "idle" | "connecting" | "sent" | "not-found" | "error";
 
 interface Props {
   selectedLayers: { layer: Layer; element: SoundtrackElement }[];
+  apiKeys: ApiKeys;
   onSent: () => void;
 }
 
@@ -17,7 +19,7 @@ const LABEL: Record<SendState, string> = {
   error: "No se pudo enviar",
 };
 
-export function SendSelectionBar({ selectedLayers, onSent }: Props) {
+export function SendSelectionBar({ selectedLayers, apiKeys, onSent }: Props) {
   const [state, setState] = useState<SendState>("idle");
 
   if (selectedLayers.length === 0) return null;
@@ -25,7 +27,7 @@ export function SendSelectionBar({ selectedLayers, onSent }: Props) {
   async function handleSend() {
     setState("connecting");
     const sounds = selectedLayers.map(({ layer, element }) => layerToSendableSound(layer, element));
-    const result = await sendToReaperBridge(sounds);
+    const result = await sendToReaperBridge(sounds, apiKeys);
     if (result.ok) {
       setState("sent");
       onSent();
