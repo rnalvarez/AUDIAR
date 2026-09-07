@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import type { Layer, ProposalCategory, SceneAnalysis } from "./types";
 import type { ApiKeys } from "./api-keys";
 import { analyzeFrameSceneDirect } from "./direct-vision-v2";
-import { searchFreesoundDirect } from "./direct-providers";
+import { searchFreesoundDiverse } from "./scene-freesound";
 
 const ACCEPTED_TYPES = "image/jpeg,image/png,image/webp";
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_AUTO_LAYERS = 3;
 const AUTO_CATEGORIES = ["ambientes", "efectos", "foley"] as const;
 type AutoCategory = (typeof AUTO_CATEGORIES)[number];
-type FreesoundItem = Awaited<ReturnType<typeof searchFreesoundDirect>>[number];
+type FreesoundItem = Awaited<ReturnType<typeof searchFreesoundDiverse>>[number];
 
 interface Props {
   apiKeys: ApiKeys;
@@ -74,25 +74,12 @@ function fallbackQueries(query: string): string[] {
   return [...new Set(variants)].filter(Boolean);
 }
 
-async function findFirstFreesoundResult(query: string, apiKey: string): Promise<{ query: string; result: FreesoundItem } | null> {
-  let lastError: unknown = null;
-  for (const variant of fallbackQueries(query)) {
-    try {
-      const results = await searchFreesoundDirect(variant, apiKey, 8);
-      if (results[0]) return { query: variant, result: results[0] };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  if (lastError) throw lastError;
-  return null;
-}
-
 export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const generationPageRef = useRef(0);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -132,6 +119,20 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
     if (inputRef.current) inputRef.current.value = "";
   }
 
+  async function findFirstFreesoundResult(query: string, apiKey: string, page: number): Promise<{ query: string; result: FreesoundItem } | null> {
+    let lastError: unknown = null;
+    for (const variant of fallbackQueries(query)) {
+      try {
+        const results = await searchFreesoundDiverse(variant, apiKey, page, 8);
+        if (results[0]) return { query: variant, result: results[0] };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (lastError) throw lastError;
+    return null;
+  }
+
   async function buildAutomaticDesign(dataUrl: string) {
     const analysis = await analyzeFrameSceneDirect(dataUrl, apiKeys.groq!);
     const generated: Partial<Record<ProposalCategory, Layer[]>> = {};
@@ -141,13 +142,20 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
       foley: analysis.foley,
     };
 
+    generationPageRef.current += 1;
+    const page = generationPageRef.current;
+
     for (const category of AUTO_CATEGORIES) {
       const cues = uniqueCues(cuesByCategory[category]);
       const layers: Layer[] = [];
+      const usedIds = new Set<number>();
       for (const cue of cues) {
         try {
-          const found = await findFirstFreesoundResult(cue.searchQuery, apiKeys.freesound!);
-          if (found) layers.push(resultToLayer(category, found.query, found.result));
+          const found = await findFirstFreesoundResult(cue.searchQuery, apiKeys.freesound!, page, usedIds);
+          if (found && !usedIds.has(found.result.id)) {
+            usedIds.add(found.result.id);
+            layers.push(resultToLayer(category, found.query, found.result));
+          }
         } catch {
           // Una búsqueda fallida no bloquea las demás capas.
         }
@@ -192,24 +200,14 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
       )}
       {uploadError && <p className="frame-panel__analysis-error">{uploadError}</p>}
 
-      <input
-        ref={inputRef}
-        type="file"
-        accept={ACCEPTED_TYPES}
-        hidden
-        onChange={(e) => handleFile(e.target.files?.[0])}
-      />
+      <input ref={inputRef} type="file" accept={ACCEPTED_TYPES} hidden onChange={(e) => handleFile(e.target.files?.[0])} />
 
       {fileName && (
         <div className="frame-panel__filename">
           <span className="frame-panel__filename-text">{fileName}</span>
           <div className="frame-panel__actions">
-            <button className="frame-panel__replace" onClick={() => inputRef.current?.click()}>
-              cambiar
-            </button>
-            <button className="frame-panel__remove" onClick={handleRemove}>
-              eliminar
-            </button>
+            <button className="frame-panel__replace" onClick={() => inputRef.current?.click()}>cambiar</button>
+            <button className="frame-panel__remove" onClick={handleRemove}>eliminar</button>
           </div>
         </div>
       )}
