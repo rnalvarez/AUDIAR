@@ -1,39 +1,34 @@
 # AUDIAR REAPER Bridge
 
 Deja enviar sonidos desde AUDIAR directo a un proyecto de REAPER. Corre
-100% en tu máquina — ni el bridge ni el script de REAPER hablan con
-internet.
+100% en tu máquina — el bridge y el script de REAPER no exponen un servidor
+público.
 
 ## Cómo funciona
 
 Una app web no puede escribir dentro de un proyecto de REAPER directamente.
 El bridge es el intermediario: recibe el pedido de AUDIAR, descarga los
-audios, y deja un archivo de trabajo en una carpeta que un script corriendo
-dentro de REAPER vigila. Ese script (Lua, ReaScript) es el que efectivamente
-crea las pistas e inserta los sonidos.
-
-**Importante:** cuando AUDIAR muestra "Enviado a REAPER", significa que el
-bridge aceptó el pedido y dejó el trabajo listo. La inserción final la hace
-el script Lua que corre dentro de REAPER.
+audios y deja jobs en una carpeta que un ReaScript dentro de REAPER vigila.
 
 ## Instalación
 
-### 1. Instalar el bridge
+### 1. Instalar o actualizar el bridge
 
 ```bash
 cd bridge
 npm install
 ```
 
+En Windows también podés ejecutar `Instalar-AUDIAR-Bridge-Windows-x64.bat`.
+
 ### 2. Cargar el script en REAPER
 
 1. Abrí REAPER.
 2. Menú **Actions → Show action list**.
-3. Botón **New action... → Load ReaScript...**.
+3. **New action... → Load ReaScript...**.
 4. Elegí `bridge/audiar-bridge.lua`.
-5. Con el script seleccionado en la lista, click **Run**.
-6. Para que quede corriendo siempre que abrís REAPER: click derecho sobre
-   el script → **Run on startup**.
+5. Ejecutalo.
+6. Para dejarlo permanente: click derecho → **Run on startup**.
 
 La consola de REAPER debería mostrar:
 
@@ -41,44 +36,20 @@ La consola de REAPER debería mostrar:
 [AUDIAR Bridge] Activo. Escuchando trabajos en: <tu carpeta>/audiar-bridge/jobs
 ```
 
-El script revisa la carpeta de trabajos varias veces por segundo.
-
-### 3. Correr el bridge
+### 3. Ejecutar el bridge
 
 ```bash
 cd bridge
 npm start
 ```
 
-Deja esta terminal abierta mientras usás AUDIAR. Vas a ver:
-
-```text
-AUDIAR REAPER Bridge escuchando en http://localhost:8765
-Carpeta de trabajos: <tu carpeta de REAPER>/audiar-bridge/jobs
-```
-
-### 4. Confirmar carpetas
-
-El bridge usa el resource path de REAPER. En Windows normalmente es:
-
-```text
-%APPDATA%\REAPER
-```
-
-Para confirmar la ubicación exacta: en REAPER, **Options → Show REAPER
-resource path in explorer/finder**.
+Dejá la ventana abierta mientras uses AUDIAR.
 
 ## Uso
 
-En AUDIAR podés enviar:
-
-- **Por sonido:** botón "Enviar a REAPER" dentro de cada layer.
-- **Varios juntos:** tildá los sonidos y usá "Enviar selección a REAPER".
-
-### Organización en REAPER
-
-Cada sonido enviado crea **su propia pista**. El nombre de la pista es el
-nombre del sonido.
+En AUDIAR podés enviar un sonido individual o una selección. Cada sonido
+crea **su propia pista** en REAPER. El nombre de la pista es el nombre del
+sonido.
 
 Las pistas se colorean automáticamente según la categoría:
 
@@ -86,25 +57,35 @@ Las pistas se colorean automáticamente según la categoría:
 - **SFX:** naranja.
 - **Foley:** verde.
 
-Los sonidos del mismo lote se insertan juntos en una única operación de
-REAPER, para que una selección grande sea más rápida de importar.
-
 El volumen y paneo configurados en AUDIAR se aplican al ítem importado.
+
+## Preview vs archivo original de Freesound
+
+Por defecto AUDIAR reproduce y, al no haber OAuth2, exporta el preview MP3.
+Los previews están pensados por Freesound para ser rápidos y no requieren
+OAuth2.
+
+El endpoint de descarga del archivo original de Freesound requiere OAuth2.
+Cuando AUDIAR tiene configurado un **Freesound OAuth access token**, el bridge
+intenta obtener los metadatos del sonido y descargar el archivo original a la
+carpeta `cache`, preservando su formato original (WAV, AIFF, FLAC, MP3, etc.).
+
+El original se usa solo si está disponible y autorizado; si falla la descarga
+original, el bridge conserva el preview como respaldo para no cortar el flujo.
+
+Los tokens OAuth de Freesound tienen una duración limitada; Freesound indica
+una validez de 24 horas para los access tokens y permite renovarlos mediante
+refresh token. Consultá la documentación de autenticación de Freesound para
+obtenerlos y renovarlos.
 
 ## Qué NO hace esta versión
 
-Sin timeline, sin sincronización con video, sin fades, sin automatización,
-sin render y sin stems — REAPER sigue siendo donde se edita y mezcla de
-verdad.
+Sin timeline, sincronización automática con video, fades, automatización,
+render o stems. REAPER sigue siendo donde se edita y mezcla de verdad.
 
 ## Solución de problemas
 
-- **"No se encontró REAPER Bridge"**: el bridge (`npm start`) no está
-  corriendo, o corre en otro puerto.
-- **El bridge dice "Enviado" pero no aparece nada en REAPER**: verificá que
-  `audiar-bridge.lua` esté cargado y ejecutándose en REAPER.
-- **Los archivos están en `cache` pero no aparecen en REAPER**: revisá la
-  consola de REAPER. Los trabajos pendientes quedan momentáneamente en
-  `audiar-bridge/jobs`.
-- **Los sonidos aparecen pero con un volumen/pan inesperados**: revisá los
-  valores configurados en AUDIAR antes de enviar.
+- **"No se encontró REAPER Bridge"**: el bridge no está corriendo o no está en `localhost:8765`.
+- **Hay archivos en `cache` pero no aparecen en REAPER**: verificá que `audiar-bridge.lua` esté ejecutándose.
+- **REAPER recibe un preview MP3**: comprobá que el OAuth access token de Freesound esté configurado y vigente en AUDIAR.
+- **El original no es WAV 24-bit/48 kHz**: AUDIAR no puede mejorar la calidad de un archivo que originalmente fue subido en otro formato o resolución; conserva la fuente original disponible en Freesound.
