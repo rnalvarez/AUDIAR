@@ -71,12 +71,13 @@ export default function App() {
 
       <Settings apiKeys={apiKeys} onSave={handleSaveApiKeys} />
 
-      <FramePanel
-        apiKeys={apiKeys}
-        onDesignGenerated={replaceLayers}
-      />
+      <FramePanel apiKeys={apiKeys} onDesignGenerated={replaceLayers} />
 
-      <SendSelectionBar selectedLayers={selectedLayers} onSent={() => setSelectedIds(new Set())} />
+      <SendSelectionBar
+        selectedLayers={selectedLayers}
+        apiKeys={apiKeys}
+        onSent={() => setSelectedIds(new Set())}
+      />
 
       <div className="app__grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
         {ELEMENTS.map(({ id, label, hint }) => (
