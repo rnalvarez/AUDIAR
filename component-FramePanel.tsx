@@ -26,7 +26,9 @@ interface Props {
   onDesignGenerated: (layers: Partial<Record<ProposalCategory, Layer[]>>) => void;
 }
 
-function resultToLayer(category: ProposalCategory, idea: { description: string; searchQuery: string }, result: Awaited<ReturnType<typeof searchFreesoundDirect>>[number]): Layer {
+type FreesoundItem = Awaited<ReturnType<typeof searchFreesoundDirect>>[number];
+
+afunction resultToLayer(category: ProposalCategory, idea: { searchQuery: string }, result: FreesoundItem): Layer {
   return {
     id: `freesound-${category}-${result.id}-${crypto.randomUUID()}`,
     name: result.name,
@@ -177,7 +179,7 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
       {imageUrl && (
         <div className="frame-panel__analysis-zone">
           <button className="frame-panel__analyze-btn" onClick={handleAnalyze} disabled={analyzing}>
-            {analyzing ? "Analizando y componiendo..." : "Analizar escena"}
+            {analyzing ? "Analizando y componiendo..." : "Analizar y componer"}
           </button>
           {analysisError && <p className="frame-panel__analysis-error">{analysisError}</p>}
         </div>
