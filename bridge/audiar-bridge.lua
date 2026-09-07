@@ -2,47 +2,53 @@
 --
 -- Corre DENTRO de REAPER, en loop (reaper.defer), y revisa la carpeta de
 -- trabajos que escribe bridge/index.ts. Por cada trabajo: busca o crea la
--- pista correspondiente (Ambientes/Efectos/Foley/Diálogos), inserta cada
--- sonido como Media Item al final de lo que ya haya en esa pista (nunca
--- se pisan entre sí — no hay sincronización por tiempo en esta versión,
--- solo evita solapamientos), y aplica gain/pan.
+-- pista correspondiente (Ambientes/SFX/Foley), inserta cada sonido como
+-- Media Item al final de lo que ya haya en esa pista y aplica gain/pan.
 --
--- Funciones de REAPER usadas acá, todas verificadas contra documentación
--- oficial y ReaScripts publicados (no inventadas):
---   InsertTrackAtIndex, GetTrack, GetSetMediaTrackInfo_String,
---   CountTracks, AddMediaItemToTrack, AddTakeToMediaItem,
---   PCM_Source_CreateFromFileEx, GetMediaSourceLength,
---   SetMediaItemTake_Source, GetSetMediaItemTakeInfo_String,
---   SetMediaItemInfo_Value, SetMediaItemTakeInfo_Value,
---   GetMediaTrackInfo_Value, CountTrackMediaItems, GetTrackMediaItem,
---   UpdateArrange, defer.
---
--- Instalación: ver bridge/README.md.
+-- Importante: reaper.time_precise() se usa para medir tiempo real. os.clock()
+-- mide tiempo de CPU en Lua y no sirve como reloj de polling fiable en este
+-- contexto.
 
-local SEP = package.config:sub(1, 1) -- "\\" en Windows, "/" en Mac/Linux
+local SEP = package.config:sub(1, 1)
 local resource_path = reaper.GetResourcePath()
 local JOBS_DIR = resource_path .. SEP .. "audiar-bridge" .. SEP .. "jobs"
 local POLL_INTERVAL_SEC = 1.0
 
-local TRACK_ORDER = { "Ambientes", "Efectos", "Foley", "Diálogos" }
+-- Nombre canónico de las pistas que usa AUDIAR. "Efectos" se mantiene como
+-- alias para proyectos/trabajos creados por versiones anteriores.
+local TRACK_ALIASES = {
+  Ambientes = { "Ambientes" },
+  SFX = { "SFX", "Efectos" },
+  Foley = { "Foley" },
+  Dialogos = { "Dialogos", "Diálogos" },
+}
 
 local function log(msg)
   reaper.ShowConsoleMsg("[AUDIAR Bridge] " .. tostring(msg) .. "\n")
 end
 
--- Busca una pista por nombre exacto; si no existe, la crea al final del
--- orden esperado (Ambientes/Efectos/Foley/Diálogos) para mantener el
--- proyecto organizado igual que en AUDIAR.
+local function aliasesFor(name)
+  return TRACK_ALIASES[name] or { name }
+end
+
 local function findOrCreateTrack(name)
+  local aliases = aliasesFor(name)
   local count = reaper.CountTracks(0)
   for i = 0, count - 1 do
     local tr = reaper.GetTrack(0, i)
     local _, trName = reaper.GetSetMediaTrackInfo_String(tr, "P_NAME", "", false)
-    if trName == name then
-      return tr
+    for _, alias in ipairs(aliases) do
+      if trName == alias then
+        -- Si encontramos el nombre antiguo, lo normalizamos para que
+        -- futuros envíos sigan cayendo en la misma pista.
+        if trName ~= name then
+          reaper.GetSetMediaTrackInfo_String(tr, "P_NAME", name, true)
+        end
+        return tr
+      end
     end
   end
-  -- No existe: se crea al final.
+
   local newIndex = reaper.CountTracks(0)
   reaper.InsertTrackAtIndex(newIndex, true)
   local tr = reaper.GetTrack(0, newIndex)
@@ -50,18 +56,20 @@ local function findOrCreateTrack(name)
   return tr
 end
 
--- Posición al final de lo que ya haya en la pista, para que los items
--- nunca se solapen. Sin sincronización por tiempo: es solo "un lugar
--- claramente definido", como pidió RAM para esta primera versión.
 local function nextFreePosition(track)
   local itemCount = reaper.CountTrackMediaItems(track)
   if itemCount == 0 then
     return 0.0
   end
-  local lastItem = reaper.GetTrackMediaItem(track, itemCount - 1)
-  local pos = reaper.GetMediaItemInfo_Value(lastItem, "D_POSITION")
-  local len = reaper.GetMediaItemInfo_Value(lastItem, "D_LENGTH")
-  return pos + len
+
+  local endPos = 0.0
+  for i = 0, itemCount - 1 do
+    local item = reaper.GetTrackMediaItem(track, i)
+    local pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+    local len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+    endPos = math.max(endPos, pos + len)
+  end
+  return endPos
 end
 
 local function dbToLinear(db)
@@ -113,6 +121,7 @@ local function listJobFiles()
     end
     i = i + 1
   end
+  table.sort(files)
   return files
 end
 
@@ -124,6 +133,7 @@ local function processJobFile(filename)
     os.remove(fullPath)
     return
   end
+
   local ok, job = pcall(chunk)
   if not ok or type(job) ~= "table" then
     log("Trabajo con formato inválido: " .. filename)
@@ -149,7 +159,7 @@ end
 local lastPollTime = 0
 
 local function poll()
-  local now = os.clock()
+  local now = reaper.time_precise()
   if now - lastPollTime >= POLL_INTERVAL_SEC then
     lastPollTime = now
     local files = listJobFiles()
@@ -157,8 +167,6 @@ local function poll()
       processJobFile(fn)
     end
   end
-  -- reaper.defer nunca debe bloquear: se reprograma de una en cada ciclo,
-  -- y el chequeo de arriba es lo único que decide si toca trabajar o no.
   reaper.defer(poll)
 end
 
