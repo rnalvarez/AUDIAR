@@ -3,12 +3,10 @@ import { ELEMENTS, type Layer, type SoundtrackElement } from "./types";
 import { loadApiKeys, saveApiKeys, type ApiKeys } from "./api-keys";
 import { Settings } from "./component-Settings";
 import { FramePanel } from "./component-FramePanel";
-import { PromptBar } from "./component-PromptBar";
 import { SoundtrackPanel } from "./component-SoundtrackPanel";
 import { SendSelectionBar } from "./component-SendSelectionBar";
 
 type LayersByElement = Record<SoundtrackElement, Layer[]>;
-type QueryByElement = Record<SoundtrackElement, string>;
 
 const emptyLayers = (): LayersByElement => ({
   ambientes: [],
@@ -20,21 +18,11 @@ const emptyLayers = (): LayersByElement => ({
 export default function App() {
   const [apiKeys, setApiKeys] = useState<ApiKeys>(() => loadApiKeys());
   const [layers, setLayers] = useState<LayersByElement>(emptyLayers());
-  const [queries, setQueries] = useState<QueryByElement>({
-    ambientes: "",
-    efectos: "",
-    foley: "",
-    dialogos: "",
-  });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   function handleSaveApiKeys(keys: ApiKeys) {
     setApiKeys(keys);
     saveApiKeys(keys);
-  }
-
-  function applyPromptToAll(prompt: string) {
-    setQueries({ ambientes: prompt, efectos: prompt, foley: prompt, dialogos: prompt });
   }
 
   function replaceLayers(next: Partial<LayersByElement>) {
@@ -69,7 +57,6 @@ export default function App() {
         onDesignGenerated={replaceLayers}
       />
 
-      <PromptBar onApply={applyPromptToAll} />
       <SendSelectionBar selectedLayers={selectedLayers} onSent={() => setSelectedIds(new Set())} />
 
       <div className="app__grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
@@ -79,7 +66,6 @@ export default function App() {
             elementId={id}
             label={label}
             hint={hint}
-            query={queries[id]}
             layers={layers[id]}
             onLayersChange={(next) => setLayers((prev) => ({ ...prev, [id]: next }))}
             apiKeys={apiKeys}
