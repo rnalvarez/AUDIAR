@@ -4,15 +4,17 @@ import { loadApiKeys, saveApiKeys, type ApiKeys } from "./api-keys";
 import { Settings } from "./component-Settings";
 import { FramePanel } from "./component-FramePanel";
 import { SoundtrackPanel } from "./component-SoundtrackPanel";
-import { SendSelectionBar } from "./component-SendSelectionBar";
+import { SendSelectionBar, type DownloadStatus } from "./component-SendSelectionBar";
 
 type LayersByElement = Record<SoundtrackElement, Layer[]>;
 const emptyLayers = (): LayersByElement => ({ ambientes: [], efectos: [], foley: [] });
+const emptyDownloadStatus: DownloadStatus = { state: "idle", current: 0, total: 0, failed: 0 };
 
 export default function App() {
   const [apiKeys, setApiKeys] = useState<ApiKeys>(() => loadApiKeys());
   const [layers, setLayers] = useState<LayersByElement>(emptyLayers());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [downloadStatus, setDownloadStatus] = useState<DownloadStatus>(emptyDownloadStatus);
 
   function handleSaveApiKeys(keys: ApiKeys) {
     setApiKeys(keys);
@@ -68,7 +70,12 @@ export default function App() {
 
       <Settings apiKeys={apiKeys} onSave={handleSaveApiKeys} />
       <FramePanel apiKeys={apiKeys} onDesignGenerated={replaceLayers} />
-      <SendSelectionBar selectedLayers={selectedLayers} onSent={() => setSelectedIds(new Set())} />
+      <SendSelectionBar
+        selectedLayers={selectedLayers}
+        onSent={() => setSelectedIds(new Set())}
+        downloadStatus={downloadStatus}
+        onDownloadStatusChange={setDownloadStatus}
+      />
 
       <div className="app__grid">
         {ELEMENTS.map(({ id, label, hint }) => (
