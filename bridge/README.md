@@ -1,57 +1,51 @@
 # AUDIAR REAPER Bridge
 
-Deja enviar sonidos desde AUDIAR directo a un proyecto de REAPER. Corre
-100% en tu máquina — el bridge y el script de REAPER no exponen un servidor
-público.
+Deja enviar sonidos desde AUDIAR directo a un proyecto de REAPER. Corre 100% en tu máquina — el bridge y el script de REAPER son locales.
 
 ## Cómo funciona
 
-Una app web no puede escribir dentro de un proyecto de REAPER directamente.
-El bridge es el intermediario: recibe el pedido de AUDIAR, descarga los
-audios y deja jobs en una carpeta que un ReaScript dentro de REAPER vigila.
+AUDIAR envía un pedido al bridge local. El bridge descarga los audios y deja jobs en una carpeta que `audiar-bridge.lua` vigila desde REAPER. El script Lua crea las pistas e inserta los sonidos.
 
-## Instalación
+## Instalación / actualización
 
-### 1. Instalar o actualizar el bridge
+Ejecutá el instalador de Windows `Instalar-AUDIAR-Bridge-Windows-x64.bat`. En una actualización, el instalador reemplaza también el ReaScript dentro de la carpeta de REAPER.
 
-```bash
-cd bridge
-npm install
-```
-
-En Windows también podés ejecutar `Instalar-AUDIAR-Bridge-Windows-x64.bat`.
-
-### 2. Cargar el script en REAPER
-
-1. Abrí REAPER.
-2. Menú **Actions → Show action list**.
-3. **New action... → Load ReaScript...**.
-4. Elegí `bridge/audiar-bridge.lua`.
-5. Ejecutalo.
-6. Para dejarlo permanente: click derecho → **Run on startup**.
-
-La consola de REAPER debería mostrar:
+Después, en REAPER: **Actions → Show action list → New action... → Load ReaScript...** y elegí:
 
 ```text
-[AUDIAR Bridge] Activo. Escuchando trabajos en: <tu carpeta>/audiar-bridge/jobs
+%APPDATA%\REAPER\Scripts\AUDIAR\audiar-bridge.lua
 ```
 
-### 3. Ejecutar el bridge
+Si ya había una instancia anterior cargada, detenela y ejecutá la nueva versión. Para dejarla permanente, usá **Run on startup**.
 
-```bash
-cd bridge
-npm start
+El bridge se inicia desde el acceso directo **AUDIAR REAPER Bridge** que crea el instalador.
+
+## Freesound: archivo original
+
+AUDIAR usa los previews MP3 para escuchar rápidamente. Para enviar el archivo original a REAPER, la conexión OAuth2 de Freesound debe estar autorizada.
+
+En la pantalla **API keys** de AUDIAR:
+
+1. Colocá tu **Freesound API key**.
+2. Colocá el **Freesound Client ID** de tu aplicación.
+3. En la primera conexión, colocá también el **Freesound Client Secret**.
+4. Presioná **Conectar con Freesound** y autorizá la aplicación en Freesound.
+
+La Redirect URI que debe estar registrada en la aplicación de Freesound es:
+
+```text
+https://rnalvarez.github.io/AUDIAR/freesound-oauth.html
 ```
 
-Dejá la ventana abierta mientras uses AUDIAR.
+Después de la primera autorización, el Client Secret y los tokens OAuth quedan guardados únicamente en el bridge local. AUDIAR Pages no los persiste. El bridge renueva automáticamente el access token usando el refresh token cuando es necesario.
 
-## Uso
+Freesound usa el flujo OAuth2 authorization-code: el código es temporal y se intercambia una sola vez por `access_token` y `refresh_token`. El endpoint de descarga OAuth entrega el sonido en su formato/calidad original. Ver documentación oficial de Freesound: https://freesound.org/docs/api/authentication.html
 
-En AUDIAR podés enviar un sonido individual o una selección. Cada sonido
-crea **su propia pista** en REAPER. El nombre de la pista es el nombre del
-sonido.
+## Organización en REAPER
 
-Las pistas se colorean automáticamente según la categoría:
+Cada sonido enviado crea **su propia pista**. El nombre de la pista es el nombre del sonido.
+
+Colores automáticos:
 
 - **Ambientes:** azul.
 - **SFX:** naranja.
@@ -59,33 +53,16 @@ Las pistas se colorean automáticamente según la categoría:
 
 El volumen y paneo configurados en AUDIAR se aplican al ítem importado.
 
-## Preview vs archivo original de Freesound
+## Rendimiento
 
-Por defecto AUDIAR reproduce y, al no haber OAuth2, exporta el preview MP3.
-Los previews están pensados por Freesound para ser rápidos y no requieren
-OAuth2.
-
-El endpoint de descarga del archivo original de Freesound requiere OAuth2.
-Cuando AUDIAR tiene configurado un **Freesound OAuth access token**, el bridge
-intenta obtener los metadatos del sonido y descargar el archivo original a la
-carpeta `cache`, preservando su formato original (WAV, AIFF, FLAC, MP3, etc.).
-
-El original se usa solo si está disponible y autorizado; si falla la descarga
-original, el bridge conserva el preview como respaldo para no cortar el flujo.
-
-Los tokens OAuth de Freesound tienen una duración limitada; Freesound indica
-una validez de 24 horas para los access tokens y permite renovarlos mediante
-refresh token. Consultá la documentación de autenticación de Freesound para
-obtenerlos y renovarlos.
+Las descargas de un lote se ejecutan en paralelo. Cada sonido genera su propio job apenas termina de descargarse, por lo que REAPER no necesita esperar al archivo más largo del lote.
 
 ## Qué NO hace esta versión
 
-Sin timeline, sincronización automática con video, fades, automatización,
-render o stems. REAPER sigue siendo donde se edita y mezcla de verdad.
+Sin timeline, sin sincronización con video, sin fades, sin automatización, sin render y sin stems — REAPER sigue siendo donde se edita y mezcla de verdad.
 
 ## Solución de problemas
 
-- **"No se encontró REAPER Bridge"**: el bridge no está corriendo o no está en `localhost:8765`.
-- **Hay archivos en `cache` pero no aparecen en REAPER**: verificá que `audiar-bridge.lua` esté ejecutándose.
-- **REAPER recibe un preview MP3**: comprobá que el OAuth access token de Freesound esté configurado y vigente en AUDIAR.
-- **El original no es WAV 24-bit/48 kHz**: AUDIAR no puede mejorar la calidad de un archivo que originalmente fue subido en otro formato o resolución; conserva la fuente original disponible en Freesound.
+- **"No se encontró REAPER Bridge"**: el bridge no está corriendo.
+- **Los archivos están en `cache` pero no aparecen en REAPER**: verificá que `audiar-bridge.lua` esté ejecutándose y mirá la consola de REAPER.
+- **Todos los archivos son MP3 aunque OAuth esté configurado**: mirá la consola del bridge. Cada descarga informa `[ORIGINAL]` o `[preview]`. Si aparece `[preview]`, la autorización OAuth no está disponible o el original no pudo descargarse.
