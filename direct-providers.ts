@@ -9,6 +9,7 @@ const PROPOSAL_MODEL = "qwen/qwen3.6-27b"; // verificar vigencia en console.groq
 const FREESOUND_SEARCH_ENDPOINT = "https://freesound.org/apiv2/search/text/";
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_PROPOSALS_PER_CATEGORY = 6;
+const MAX_OUTPUT_TOKENS = 900;
 const DATA_URL_PATTERN = /^data:image\/(jpeg|png|webp);base64,/;
 
 // --- Freesound: mismo isCommerciallySafe que provider-freesound.ts ---
@@ -136,7 +137,7 @@ export async function analyzeFrameDirect(image: string, apiKey: string): Promise
         { role: "user", content: [{ type: "text", text: ANALYSIS_PROMPT }, { type: "image_url", image_url: { url: image } }] },
       ],
       temperature: 0.4,
-      max_completion_tokens: 2048,
+      max_completion_tokens: MAX_OUTPUT_TOKENS,
       reasoning_effort: "none",
       reasoning_format: "hidden",
       response_format: { type: "json_object" },
@@ -272,7 +273,7 @@ export async function generateSoundDesignProposalDirect(
         { role: "user", content: `${PROPOSAL_PROMPT}\n${JSON.stringify(analysis)}` },
       ],
       temperature: 0.5,
-      max_completion_tokens: 3072,
+      max_completion_tokens: MAX_OUTPUT_TOKENS,
       reasoning_effort: "none",
       reasoning_format: "hidden",
       response_format: { type: "json_object" },
