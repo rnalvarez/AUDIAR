@@ -7,8 +7,14 @@ const ACCEPTED_TYPES = "image/jpeg,image/png,image/webp";
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_AUTO_LAYERS = 3;
 const AUTO_CATEGORIES = ["ambientes", "efectos", "foley"] as const;
-
 type AutoCategory = (typeof AUTO_CATEGORIES)[number];
+
+type FreesoundItem = Awaited<ReturnType<typeof searchFreesoundDirect>>[number];
+
+interface Props {
+  apiKeys: ApiKeys;
+  onDesignGenerated: (layers: Partial<Record<ProposalCategory, Layer[]>>) => void;
+}
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -18,13 +24,6 @@ function fileToDataUrl(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
-
-interface Props {
-  apiKeys: ApiKeys;
-  onDesignGenerated: (layers: Partial<Record<ProposalCategory, Layer[]>>) => void;
-}
-
-type FreesoundItem = Awaited<ReturnType<typeof searchFreesoundDirect>>[number];
 
 function resultToLayer(category: ProposalCategory, searchQuery: string, result: FreesoundItem): Layer {
   return {
@@ -44,122 +43,38 @@ function resultToLayer(category: ProposalCategory, searchQuery: string, result: 
   };
 }
 
-function cueSearchQuery(cue: { text: string }): string {
-  return cue.text
-    .replace(/[“”"']/g, "")
-    .replace(/[.,;:!?()[\]{}]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-const SEARCH_TRANSLATIONS: Record<string, string> = {
-  pasos: "footsteps",
-  caminar: "walking",
-  caminando: "walking",
-  pisadas: "footsteps",
-  calle: "street",
-  urbano: "urban",
-  urbana: "urban",
-  ciudad: "city",
-  asfalto: "asphalt",
-  cemento: "concrete",
-  madera: "wood",
-  metal: "metal",
-  vidrio: "glass",
-  agua: "water",
-  lluvia: "rain",
-  mojado: "wet",
-  viento: "wind",
-  hojas: "leaves",
-  árbol: "tree",
-  arbol: "tree",
-  bosque: "forest",
-  mar: "sea",
-  río: "river",
-  rio: "river",
-  puerta: "door",
-  abrir: "open",
-  abrirse: "open",
-  cerrar: "close",
-  cerrarse: "close",
-  golpe: "impact",
-  golpes: "impacts",
-  motor: "engine",
-  auto: "car",
-  coche: "car",
-  vehículo: "vehicle",
-  vehiculo: "vehicle",
-  tráfico: "traffic",
-  trafico: "traffic",
-  tren: "train",
-  avión: "airplane",
-  avion: "airplane",
-  perro: "dog",
-  gato: "cat",
-  pájaro: "bird",
-  pajaro: "bird",
-  voz: "voice",
-  voces: "voices",
-  ropa: "cloth",
-  tela: "cloth",
-  papel: "paper",
-  habitación: "room",
-  habitacion: "room",
-  interior: "indoor",
-  exterior: "outdoor",
-  noche: "night",
-  día: "day",
-  dia: "day",
-  lejano: "distant",
-  lejana: "distant",
-  cercano: "close",
-  cercana: "close",
-  fuerte: "loud",
-  suave: "soft",
-};
-
-const SEARCH_STOPWORDS = new Set([
-  "a", "al", "ante", "bajo", "con", "contra", "de", "del", "desde", "en", "entre", "hacia", "hasta",
-  "la", "las", "el", "los", "un", "una", "unos", "unas", "por", "para", "sin", "sobre", "y", "o",
-  "que", "se", "su", "sus", "es", "son", "hay", "muy", "como", "más", "mas", "algo", "posible",
-  "probable", "observado", "possible", "probable", "observed", "sound", "sonido", "sonidos",
-]);
-
-function searchQueryVariants(query: string): string[] {
-  const cleaned = cueSearchQuery({ text: query });
-  const words = cleaned
-    .toLowerCase()
-    .split(/\s+/)
-    .map((word) => word.replace(/[^\p{L}\p{N}-]/gu, ""))
-    .filter(Boolean);
-
-  const translated = words
-    .filter((word) => !SEARCH_STOPWORDS.has(word))
-    .map((word) => SEARCH_TRANSLATIONS[word] ?? word);
-
-  const generic = translated.filter((word, index) => translated.indexOf(word) === index).join(" ");
-  const focused = translated.slice(0, 4).filter((word, index) => translated.indexOf(word) === index).join(" ");
-  const shortest = translated.slice(0, 2).filter((word, index) => translated.indexOf(word) === index).join(" ");
-
-  return [...new Set([cleaned, generic, focused, shortest])].filter((value) => value.length > 0);
-}
-
 function uniqueCues(cues: SceneAnalysis["ambience"]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const cue of cues) {
-    const query = cueSearchQuery(cue);
+    const query = cue.searchQuery?.trim() || cue.text.trim();
+    if (!query) continue;
     const key = query.toLowerCase();
-    if (!key || seen.has(key)) continue;
+    if (seen.has(key)) continue;
     seen.add(key);
     result.push(query);
   }
   return result.slice(0, MAX_AUTO_LAYERS);
 }
 
+function fallbackQueries(query: string): string[] {
+  const words = query
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length >= 3);
+
+  const unique = [...new Set(words)];
+  const variants = [query.trim()];
+  if (unique.length >= 3) variants.push(unique.slice(0, 3).join(" "));
+  if (unique.length >= 2) variants.push(unique.slice(0, 2).join(" "));
+  if (unique.length >= 1) variants.push(unique[0]);
+  return [...new Set(variants)].filter(Boolean);
+}
+
 async function findFirstFreesoundResult(query: string, apiKey: string): Promise<{ query: string; result: FreesoundItem } | null> {
   let lastError: unknown = null;
-  for (const variant of searchQueryVariants(query)) {
+  for (const variant of fallbackQueries(query)) {
     try {
       const results = await searchFreesoundDirect(variant, apiKey, 5);
       if (results[0]) return { query: variant, result: results[0] };
@@ -218,7 +133,6 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
   async function buildAutomaticDesign(dataUrl: string) {
     const analysis = await analyzeFrameDirect(dataUrl, apiKeys.groq!);
     const generated: Partial<Record<ProposalCategory, Layer[]>> = {};
-
     const cuesByCategory: Record<AutoCategory, SceneAnalysis["ambience"]> = {
       ambientes: analysis.ambience,
       efectos: analysis.effects,
@@ -234,7 +148,7 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
           const found = await findFirstFreesoundResult(query, apiKeys.freesound!);
           if (found) layers.push(resultToLayer(category, found.query, found.result));
         } catch {
-          // Una capa sin resultado no bloquea las demás.
+          // Una búsqueda fallida no bloquea las demás capas.
         }
       }
 
