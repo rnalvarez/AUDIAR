@@ -1,10 +1,7 @@
 // AUDIAR REAPER Bridge — servidor local, corre en tu máquina, nunca en
 // internet. Recibe pedidos de AUDIAR (navegador), descarga los audios, y
-// deja un archivo de "trabajo" en la carpeta que audiar-bridge.lua vigila
-// desde adentro de REAPER. No habla con REAPER directamente — ni falta
-// que hace, porque no existe una forma confiable de que un proceso externo
-// escriba directo en la memoria/proyecto de REAPER. El archivo de trabajo
-// es la posta.
+// deja archivos de "trabajo" en la carpeta que audiar-bridge.lua vigila
+// desde adentro de REAPER. No habla con REAPER directamente.
 //
 // Ver bridge/README.md para instalación completa.
 
@@ -45,6 +42,14 @@ interface IncomingSound {
   source?: string;
 }
 
+interface DownloadedSound {
+  path: string;
+  track: string;
+  name: string;
+  gainDb?: number;
+  pan?: number;
+}
+
 function json(res: import("node:http").ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "Content-Type": "application/json", ...CORS_HEADERS });
   res.end(JSON.stringify(body));
@@ -72,29 +77,44 @@ async function downloadAudio(sound: IncomingSound): Promise<string> {
   return localPath;
 }
 
-function writeJobFile(sounds: { path: string; track: string; name: string; gainDb?: number; pan?: number }[]) {
-  const entries = sounds
-    .map((s) => {
-      const fields = [
-        `path = ${luaStringLiteral(s.path)}`,
-        `track = ${luaStringLiteral(s.track)}`,
-        `name = ${luaStringLiteral(s.name)}`,
-      ];
-      if (typeof s.gainDb === "number") fields.push(`gainDb = ${s.gainDb}`);
-      if (typeof s.pan === "number") fields.push(`pan = ${s.pan}`);
-      return `  { ${fields.join(", ")} },`;
-    })
-    .join("\n");
+async function writeJobFile(sound: DownloadedSound): Promise<string> {
+  const fields = [
+    `path = ${luaStringLiteral(sound.path)}`,
+    `track = ${luaStringLiteral(sound.track)}`,
+    `name = ${luaStringLiteral(sound.name)}`,
+  ];
+  if (typeof sound.gainDb === "number") fields.push(`gainDb = ${sound.gainDb}`);
+  if (typeof sound.pan === "number") fields.push(`pan = ${sound.pan}`);
 
-  const lua = `return {\n${entries}\n}\n`;
-  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const lua = `return {\n  { ${fields.join(", ")} },\n}\n`;
+  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   const fileName = `job_${uniqueSuffix}.lua`;
-  return writeFile(path.join(JOBS_DIR, fileName), lua, "utf-8").then(() => fileName);
+  await writeFile(path.join(JOBS_DIR, fileName), lua, "utf-8");
+  return fileName;
 }
 
 async function ensureDirs() {
   await mkdir(JOBS_DIR, { recursive: true });
   await mkdir(CACHE_DIR, { recursive: true });
+}
+
+async function downloadAndQueueSound(sound: IncomingSound): Promise<{ ok: true; job: string } | { ok: false; error: string }> {
+  try {
+    const localPath = await downloadAudio(sound);
+    const job = await writeJobFile({
+      path: localPath,
+      track: sound.element,
+      name: sound.name,
+      gainDb: sound.gainDb,
+      pan: sound.pan,
+    });
+    console.log(`[AUDIAR Bridge] Listo para REAPER: ${sound.name}`);
+    return { ok: true, job };
+  } catch (err: any) {
+    const message = err?.message ?? `error descargando ${sound.name}`;
+    console.error(`[AUDIAR Bridge] ${message}`);
+    return { ok: false, error: message };
+  }
 }
 
 const server = createServer(async (req, res) => {
@@ -120,27 +140,19 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      // Los sonidos se descargan en paralelo. Antes se descargaban uno por
-      // uno, por eso una selección grande podía quedar mucho tiempo en espera.
-      const downloaded = await Promise.all(
-        sounds.map(async (sound) => {
-          const localPath = await downloadAudio(sound);
-          return {
-            path: localPath,
-            track: sound.element,
-            name: sound.name,
-            gainDb: sound.gainDb,
-            pan: sound.pan,
-          };
-        })
-      );
+      // Respondemos inmediatamente: las descargas continúan en paralelo en
+      // segundo plano. Cada archivo que termina genera su propio job y puede
+      // ser importado por REAPER sin esperar al resto del lote.
+      json(res, 202, { ok: true, queued: sounds.length });
 
-      const jobFile = await writeJobFile(downloaded);
-      json(res, 200, { ok: true, job: jobFile, count: downloaded.length });
+      void Promise.all(sounds.map(downloadAndQueueSound));
     } catch (err: any) {
       json(res, 500, { error: err?.message ?? "error inesperado en el bridge" });
     }
-  } else if (req.url !== "/send" && req.url !== "/ping") {
+    return;
+  }
+
+  if (req.url !== "/ping") {
     json(res, 404, { error: "not found" });
   }
 });
