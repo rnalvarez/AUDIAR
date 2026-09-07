@@ -1,4 +1,4 @@
-export type SoundtrackElement = "ambientes" | "efectos" | "foley" | "dialogos";
+export type SoundtrackElement = "ambientes" | "efectos" | "foley";
 
 export const ELEMENTS: { id: SoundtrackElement; label: string; hint: string }[] = [
   { id: "ambientes", label: "Ambientes", hint: "hasta 3 capas" },
@@ -53,8 +53,6 @@ export interface SceneAnalysis {
   dialogue: SoundCue[];
   narrativeIdeas: SoundCue[];
 }
-
-export type ProposalCategory = SoundtrackElement;
 
 export interface FreesoundResultItem {
   id: number;
