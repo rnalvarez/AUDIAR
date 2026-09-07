@@ -43,18 +43,10 @@ export function SoundtrackPanel({
     setError(null);
     try {
       if (source !== "freesound") {
-        setError(
-          source === "soundly"
-            ? "Soundly todavía no está conectado."
-            : "Generado todavía no está conectado."
-        );
+        setError(source === "soundly" ? "Soundly todavía no está conectado." : "Generado todavía no está conectado.");
         return;
       }
-
-      if (!apiKeys.freesound?.trim()) {
-        throw new Error("Configurá la API key de Freesound antes de buscar sonidos.");
-      }
-
+      if (!apiKeys.freesound?.trim()) throw new Error("Configurá la API key de Freesound antes de buscar sonidos.");
       const results = await searchFreesoundDirect(search, apiKeys.freesound);
       addResults(results, search.trim());
     } catch (e: any) {
@@ -73,6 +65,12 @@ export function SoundtrackPanel({
       durationSeconds: result.durationSeconds,
       audioUrl: result.previewUrl,
       freesoundUrl: result.freesoundUrl,
+      freesoundId: result.id,
+      originalFilename: result.originalFilename,
+      originalType: result.originalType,
+      sampleRate: result.sampleRate,
+      bitDepth: result.bitDepth,
+      fileSize: result.fileSize,
       tags: result.tags,
       searchQuery,
       gainDb: 0,
@@ -84,17 +82,10 @@ export function SoundtrackPanel({
 
   function addResults(results: FreesoundResultItem[], searchQuery = search.trim()): string[] {
     const existingSourceIds = new Set(
-      layers
-        .map((layer) => layer.freesoundUrl?.match(/sound\/([0-9]+)\//)?.[1])
-        .filter(Boolean)
+      layers.map((layer) => layer.freesoundUrl?.match(/sound\\/(\\d+)\\//)?.[1]).filter(Boolean)
     );
-    const newLayers = results
-      .filter((result) => !existingSourceIds.has(String(result.id)))
-      .map((result) => createLayer(result, searchQuery));
-
-    if (newLayers.length > 0) {
-      onLayersChange([...layers, ...newLayers]);
-    }
+    const newLayers = results.filter((result) => !existingSourceIds.has(String(result.id))).map((result) => createLayer(result, searchQuery));
+    if (newLayers.length > 0) onLayersChange([...layers, ...newLayers]);
     return newLayers.map((layer) => layer.id);
   }
 
@@ -113,53 +104,20 @@ export function SoundtrackPanel({
     <section className="panel" aria-labelledby={`panel-${elementId}`}>
       <header className="panel__header">
         <div className="panel__header-main">
-          <div>
-            <h2 id={`panel-${elementId}`}>{label}</h2>
-            <span className="panel__hint">{hint}</span>
-          </div>
-          <button
-            className={`panel__select-all ${allSelected ? "is-active" : ""}`}
-            type="button"
-            onClick={() => onSetCategorySelection(!allSelected)}
-            disabled={layers.length === 0}
-            aria-pressed={allSelected}
-          >
-            {allSelected ? "deseleccionar todos" : "seleccionar todos"}
-          </button>
+          <div><h2 id={`panel-${elementId}`}>{label}</h2><span className="panel__hint">{hint}</span></div>
+          <button className={`panel__select-all ${allSelected ? "is-active" : ""}`} type="button" onClick={() => onSetCategorySelection(!allSelected)} disabled={layers.length === 0} aria-pressed={allSelected}>{allSelected ? "deseleccionar todos" : "seleccionar todos"}</button>
         </div>
       </header>
-
       <SourceSelector value={source} onChange={setSource} />
-
       <div className="panel__search">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          placeholder="describí el sonido..."
-        />
-        <button onClick={handleSearch} disabled={loading}>
-          {loading ? "..." : "buscar"}
-        </button>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSearch()} placeholder="describí el sonido..." />
+        <button onClick={handleSearch} disabled={loading}>{loading ? "..." : "buscar"}</button>
       </div>
       {error && <p className="panel__error">{error}</p>}
-
       <div className="panel__layers">
         {layers.length === 0 && !loading && <p className="panel__empty">sin capas todavía</p>}
         {layers.map((layer) => (
-          <LayerStrip
-            key={layer.id}
-            layer={layer}
-            element={elementId}
-            selected={selectedIds.has(layer.id)}
-            otherSoloActive={globalSoloActive && !layer.solo}
-            onToggleSelect={() => onToggleSelect(layer.id)}
-            onChange={(patch) => updateLayer(layer.id, patch)}
-            onRemove={() => removeLayer(layer.id)}
-            onAddResults={addResults}
-            onSelectIds={onSelectIds}
-            apiKeys={apiKeys}
-          />
+          <LayerStrip key={layer.id} layer={layer} element={elementId} selected={selectedIds.has(layer.id)} otherSoloActive={globalSoloActive && !layer.solo} onToggleSelect={() => onToggleSelect(layer.id)} onChange={(patch) => updateLayer(layer.id, patch)} onRemove={() => removeLayer(layer.id)} onAddResults={addResults} onSelectIds={onSelectIds} apiKeys={apiKeys} />
         ))}
       </div>
     </section>
