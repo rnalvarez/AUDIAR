@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { ELEMENTS, type Layer, type SceneAnalysis, type SoundtrackElement } from "./types";
+import { ELEMENTS, type Layer, type SoundtrackElement } from "./types";
 import { loadApiKeys, saveApiKeys, type ApiKeys } from "./api-keys";
 import { Settings } from "./component-Settings";
 import { FramePanel } from "./component-FramePanel";
-import { SoundDesignProposalPanel } from "./component-SoundDesignProposal";
 import { PromptBar } from "./component-PromptBar";
 import { SoundtrackPanel } from "./component-SoundtrackPanel";
 import { SendSelectionBar } from "./component-SendSelectionBar";
@@ -21,14 +20,13 @@ const emptyLayers = (): LayersByElement => ({
 export default function App() {
   const [apiKeys, setApiKeys] = useState<ApiKeys>(() => loadApiKeys());
   const [layers, setLayers] = useState<LayersByElement>(emptyLayers());
-  const [analysis, setAnalysis] = useState<SceneAnalysis | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [queries, setQueries] = useState<QueryByElement>({
     ambientes: "",
     efectos: "",
     foley: "",
     dialogos: "",
   });
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   function handleSaveApiKeys(keys: ApiKeys) {
     setApiKeys(keys);
@@ -39,10 +37,9 @@ export default function App() {
     setQueries({ ambientes: prompt, efectos: prompt, foley: prompt, dialogos: prompt });
   }
 
-  function addLayer(element: SoundtrackElement, layer: Layer) {
-    setLayers((prev) =>
-      prev[element].some((l) => l.id === layer.id) ? prev : { ...prev, [element]: [...prev[element], layer] }
-    );
+  function replaceLayers(next: Partial<LayersByElement>) {
+    setLayers((prev) => ({ ...prev, ...next }));
+    setSelectedIds(new Set());
   }
 
   function toggleSelect(id: string) {
@@ -55,7 +52,7 @@ export default function App() {
   }
 
   const selectedLayers = ELEMENTS.flatMap(({ id }) =>
-    layers[id].filter((l) => selectedIds.has(l.id)).map((layer) => ({ layer, element: id }))
+    layers[id].filter((layer) => selectedIds.has(layer.id)).map((layer) => ({ layer, element: id }))
   );
 
   return (
@@ -67,8 +64,11 @@ export default function App() {
 
       <Settings apiKeys={apiKeys} onSave={handleSaveApiKeys} />
 
-      <FramePanel analysis={analysis} onAnalysisChange={setAnalysis} apiKeys={apiKeys} />
-      <SoundDesignProposalPanel analysis={analysis} onAddLayer={addLayer} apiKeys={apiKeys} />
+      <FramePanel
+        apiKeys={apiKeys}
+        onDesignGenerated={replaceLayers}
+      />
+
       <PromptBar onApply={applyPromptToAll} />
       <SendSelectionBar selectedLayers={selectedLayers} onSent={() => setSelectedIds(new Set())} />
 
