@@ -1,11 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { Layer, ProposalCategory } from "./types";
+import type { Layer, ProposalCategory, SceneAnalysis } from "./types";
 import type { ApiKeys } from "./api-keys";
-import {
-  analyzeFrameDirect,
-  generateSoundDesignProposalDirect,
-  searchFreesoundDirect,
-} from "./direct-providers";
+import { analyzeFrameDirect, searchFreesoundDirect } from "./direct-providers";
 
 const ACCEPTED_TYPES = "image/jpeg,image/png,image/webp";
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -28,7 +24,7 @@ interface Props {
 
 type FreesoundItem = Awaited<ReturnType<typeof searchFreesoundDirect>>[number];
 
-function resultToLayer(category: ProposalCategory, idea: { searchQuery: string }, result: FreesoundItem): Layer {
+function resultToLayer(category: ProposalCategory, searchQuery: string, result: FreesoundItem): Layer {
   return {
     id: `freesound-${category}-${result.id}-${crypto.randomUUID()}`,
     name: result.name,
@@ -38,7 +34,7 @@ function resultToLayer(category: ProposalCategory, idea: { searchQuery: string }
     audioUrl: result.previewUrl,
     freesoundUrl: result.freesoundUrl,
     tags: result.tags,
-    searchQuery: idea.searchQuery,
+    searchQuery,
     gainDb: 0,
     pan: 0,
     muted: false,
@@ -46,12 +42,32 @@ function resultToLayer(category: ProposalCategory, idea: { searchQuery: string }
   };
 }
 
+function cueSearchQuery(cue: { text: string }): string {
+  return cue.text
+    .replace(/[“”"']/g, "")
+    .replace(/[.,;:!?()[\]{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function uniqueCues(cues: SceneAnalysis["ambience"]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const cue of cues) {
+    const query = cueSearchQuery(cue);
+    const key = query.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(query);
+  }
+  return result.slice(0, MAX_AUTO_LAYERS);
+}
+
 export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -92,29 +108,32 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
   }
 
   async function buildAutomaticDesign(dataUrl: string) {
+    // Una sola llamada a Groq. El análisis ya contiene las familias de
+    // sonidos y Freesound resuelve cada una en un sonido real.
     const analysis = await analyzeFrameDirect(dataUrl, apiKeys.groq!);
-    const proposal = await generateSoundDesignProposalDirect(analysis, apiKeys.groq!);
-
     const generated: Partial<Record<ProposalCategory, Layer[]>> = {};
 
+    const cuesByCategory: Record<ProposalCategory, SceneAnalysis["ambience"]> = {
+      ambientes: analysis.ambience,
+      efectos: analysis.effects,
+      foley: analysis.foley,
+    };
+
     for (const category of AUTO_CATEGORIES) {
-      const ideas = proposal[category]
-        .filter((idea) => idea.searchQuery.trim())
-        .slice(0, MAX_AUTO_LAYERS);
+      const queries = uniqueCues(cuesByCategory[category]);
+      const layers: Layer[] = [];
 
-      const searched = await Promise.all(
-        ideas.map(async (idea) => {
-          try {
-            const results = await searchFreesoundDirect(idea.searchQuery, apiKeys.freesound!, 5);
-            const first = results[0];
-            return first ? resultToLayer(category, idea, first) : null;
-          } catch {
-            return null;
-          }
-        })
-      );
+      for (const query of queries) {
+        try {
+          const results = await searchFreesoundDirect(query, apiKeys.freesound!, 5);
+          const first = results[0];
+          if (first) layers.push(resultToLayer(category, query, first));
+        } catch {
+          // Una capa sin resultado no bloquea las demás.
+        }
+      }
 
-      generated[category] = searched.filter((layer): layer is Layer => Boolean(layer));
+      generated[category] = layers;
     }
 
     onDesignGenerated(generated);
