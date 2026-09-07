@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { Layer, ProposalCategory, SceneAnalysis } from "./types";
 import type { ApiKeys } from "./api-keys";
-import { analyzeFrameDirect, searchFreesoundDirect } from "./direct-providers";
+import { analyzeFrameSceneDirect } from "./direct-vision-v2";
+import { searchFreesoundDirect } from "./direct-providers";
 
 const ACCEPTED_TYPES = "image/jpeg,image/png,image/webp";
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_AUTO_LAYERS = 3;
 const AUTO_CATEGORIES = ["ambientes", "efectos", "foley"] as const;
 type AutoCategory = (typeof AUTO_CATEGORIES)[number];
-
 type FreesoundItem = Awaited<ReturnType<typeof searchFreesoundDirect>>[number];
 
 interface Props {
@@ -43,16 +43,18 @@ function resultToLayer(category: ProposalCategory, searchQuery: string, result: 
   };
 }
 
-function uniqueCues(cues: SceneAnalysis["ambience"]): string[] {
+function uniqueCues(cues: SceneAnalysis["ambience"]): { text: string; searchQuery: string }[] {
   const seen = new Set<string>();
-  const result: string[] = [];
+  const result: { text: string; searchQuery: string }[] = [];
   for (const cue of cues) {
-    const query = cue.searchQuery?.trim() || cue.text.trim();
-    if (!query) continue;
-    const key = query.toLowerCase();
+    const searchQuery = cue.searchQuery?.trim();
+    const text = cue.text.trim();
+    const value = searchQuery || text;
+    if (!value) continue;
+    const key = value.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    result.push(query);
+    result.push({ text, searchQuery: value });
   }
   return result.slice(0, MAX_AUTO_LAYERS);
 }
@@ -63,9 +65,9 @@ function fallbackQueries(query: string): string[] {
     .replace(/[^a-z0-9 ]/g, " ")
     .split(/\s+/)
     .filter((word) => word.length >= 3);
-
   const unique = [...new Set(words)];
   const variants = [query.trim()];
+  if (unique.length >= 4) variants.push(unique.slice(0, 4).join(" "));
   if (unique.length >= 3) variants.push(unique.slice(0, 3).join(" "));
   if (unique.length >= 2) variants.push(unique.slice(0, 2).join(" "));
   if (unique.length >= 1) variants.push(unique[0]);
@@ -76,7 +78,7 @@ async function findFirstFreesoundResult(query: string, apiKey: string): Promise<
   let lastError: unknown = null;
   for (const variant of fallbackQueries(query)) {
     try {
-      const results = await searchFreesoundDirect(variant, apiKey, 5);
+      const results = await searchFreesoundDirect(variant, apiKey, 8);
       if (results[0]) return { query: variant, result: results[0] };
     } catch (error) {
       lastError = error;
@@ -131,7 +133,7 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
   }
 
   async function buildAutomaticDesign(dataUrl: string) {
-    const analysis = await analyzeFrameDirect(dataUrl, apiKeys.groq!);
+    const analysis = await analyzeFrameSceneDirect(dataUrl, apiKeys.groq!);
     const generated: Partial<Record<ProposalCategory, Layer[]>> = {};
     const cuesByCategory: Record<AutoCategory, SceneAnalysis["ambience"]> = {
       ambientes: analysis.ambience,
@@ -140,18 +142,16 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
     };
 
     for (const category of AUTO_CATEGORIES) {
-      const queries = uniqueCues(cuesByCategory[category]);
+      const cues = uniqueCues(cuesByCategory[category]);
       const layers: Layer[] = [];
-
-      for (const query of queries) {
+      for (const cue of cues) {
         try {
-          const found = await findFirstFreesoundResult(query, apiKeys.freesound!);
+          const found = await findFirstFreesoundResult(cue.searchQuery, apiKeys.freesound!);
           if (found) layers.push(resultToLayer(category, found.query, found.result));
         } catch {
           // Una búsqueda fallida no bloquea las demás capas.
         }
       }
-
       generated[category] = layers;
     }
 
