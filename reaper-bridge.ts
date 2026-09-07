@@ -1,8 +1,10 @@
 // Habla con bridge/index.ts, que corre local en tu máquina (puerto 8765).
+// Las descargas directas usan el servicio local en el puerto 8766.
 import type { Layer, SoundtrackElement } from "./types";
 import { ELEMENTS } from "./types";
 
 const BRIDGE_URL = "http://localhost:8765";
+const DOWNLOAD_BRIDGE_URL = "http://localhost:8766";
 
 export interface SendableSound {
   id: string;
@@ -88,7 +90,7 @@ export interface DownloadProgress {
 }
 
 async function downloadOneToDirectory(sound: SendableSound, directoryHandle: any, usedNames: Set<string>): Promise<void> {
-  const res = await fetch(`${BRIDGE_URL}/download`, {
+  const res = await fetch(`${DOWNLOAD_BRIDGE_URL}/download`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sound }),
