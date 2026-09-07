@@ -82,7 +82,10 @@ export function SoundtrackPanel({
 
   function addResults(results: FreesoundResultItem[], searchQuery = search.trim()): string[] {
     const existingSourceIds = new Set(
-      layers.map((layer) => layer.freesoundUrl?.match(/sound\\/(\\d+)\\//)?.[1]).filter(Boolean)
+      layers.map((layer) => {
+        const match = layer.freesoundUrl?.match(/\/s\/(\d+)\/?$/);
+        return match?.[1];
+      }).filter(Boolean)
     );
     const newLayers = results.filter((result) => !existingSourceIds.has(String(result.id))).map((result) => createLayer(result, searchQuery));
     if (newLayers.length > 0) onLayersChange([...layers, ...newLayers]);
