@@ -17,8 +17,6 @@ interface Props {
   onToggleSelect: (id: string) => void;
 }
 
-// Freesound and Soundly both return this shape ({element, query, results})
-// from the worker — see provider-freesound.ts / provider-soundly.ts.
 export function SoundtrackPanel({
   elementId,
   label,
@@ -35,8 +33,6 @@ export function SoundtrackPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // useState(query) only seeds the initial value — sin esto, "usar en las 4
-  // categorías" de PromptBar no llega acá porque el panel ya está montado.
   useEffect(() => {
     setSearch(query);
   }, [query]);
@@ -67,7 +63,7 @@ export function SoundtrackPanel({
         license: r.license,
         commerciallySafe: r.commerciallySafe,
         durationSeconds: r.durationSeconds,
-        audioUrl: r.previewUrl ?? r.audioUrl ?? "",
+        audioUrl: r.previewUrl,
         freesoundUrl: r.freesoundUrl,
         tags: r.tags,
         gainDb: 0,
