@@ -28,7 +28,7 @@ interface Props {
 
 type FreesoundItem = Awaited<ReturnType<typeof searchFreesoundDirect>>[number];
 
-afunction resultToLayer(category: ProposalCategory, idea: { searchQuery: string }, result: FreesoundItem): Layer {
+function resultToLayer(category: ProposalCategory, idea: { searchQuery: string }, result: FreesoundItem): Layer {
   return {
     id: `freesound-${category}-${result.id}-${crypto.randomUUID()}`,
     name: result.name,
