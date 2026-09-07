@@ -11,11 +11,14 @@ import os from "node:os";
 import { randomBytes } from "node:crypto";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
+import { get as httpsGet } from "node:https";
+import type { IncomingMessage } from "node:http";
 
 const PORT = 8765;
 const FREESOUND_API = "https://freesound.org/apiv2";
 const OAUTH_REDIRECT_URI = "https://rnalvarez.github.io/AUDIAR/freesound-oauth.html";
 const OAUTH_FILE = "freesound-oauth.json";
+const MAX_REDIRECTS = 5;
 
 function defaultReaperResourcePath(): string {
   const home = os.homedir();
@@ -204,6 +207,52 @@ async function getValidAccessToken(): Promise<string | null> {
   return store.accessToken ?? null;
 }
 
+function requestStream(url: string, headers: Record<string, string> = {}, redirectCount = 0): Promise<IncomingMessage> {
+  return new Promise((resolve, reject) => {
+    if (redirectCount > MAX_REDIRECTS) {
+      reject(new Error(`Demasiadas redirecciones (${MAX_REDIRECTS})`));
+      return;
+    }
+
+    const request = httpsGet(url, { headers }, (response) => {
+      const status = response.statusCode ?? 0;
+      if (status >= 300 && status < 400 && response.headers.location) {
+        response.resume();
+        const location = new URL(response.headers.location, url).toString();
+        requestStream(location, {}, redirectCount + 1).then(resolve, reject);
+        return;
+      }
+      resolve(response);
+    });
+
+    request.on("error", (error) => {
+      reject(new Error(`HTTPS ${new URL(url).hostname}: ${error.message}`));
+    });
+  });
+}
+
+async function downloadUrlToFile(url: string, localPath: string, headers: Record<string, string> = {}): Promise<{ status: number; contentType?: string }> {
+  const response = await requestStream(url, headers);
+  const status = response.statusCode ?? 0;
+  const contentType = typeof response.headers["content-type"] === "string" ? response.headers["content-type"] : undefined;
+
+  if (status < 200 || status >= 300) {
+    response.resume();
+    throw new Error(`HTTP ${status}${contentType ? ` (${contentType})` : ""}`);
+  }
+
+  if (!response.readable) throw new Error("La respuesta HTTPS no es legible.");
+  const tmpPath = `${localPath}.part`;
+  try {
+    await pipeline(response, createWriteStream(tmpPath));
+    await rename(tmpPath, localPath);
+    return { status, contentType };
+  } catch (error) {
+    await unlink(tmpPath).catch(() => undefined);
+    throw error;
+  }
+}
+
 async function writeResponseToFile(res: Response, localPath: string): Promise<void> {
   if (!res.body) throw new Error("La respuesta no contiene cuerpo de descarga.");
   const tmpPath = `${localPath}.part`;
@@ -227,27 +276,25 @@ async function downloadOriginalFromFreesound(sound: IncomingSound): Promise<stri
 
   if (existsSync(localPath)) return localPath;
 
-  let downloadRes = await fetch(`${FREESOUND_API}/sounds/${sound.freesoundId}/download/`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (downloadRes.status === 401) {
-    const refreshed = await refreshAccessToken(await loadOAuthStore());
-    if (!refreshed.accessToken) return null;
-    downloadRes = await fetch(`${FREESOUND_API}/sounds/${sound.freesoundId}/download/`, {
-      headers: { Authorization: `Bearer ${refreshed.accessToken}` },
-    });
+  const url = `${FREESOUND_API}/sounds/${sound.freesoundId}/download/`;
+  try {
+    await downloadUrlToFile(url, localPath, { Authorization: `Bearer ${accessToken}` });
+    return localPath;
+  } catch (error: any) {
+    if (String(error?.message ?? "").startsWith("HTTP 401")) {
+      const refreshed = await refreshAccessToken(await loadOAuthStore());
+      if (!refreshed.accessToken) return null;
+      await downloadUrlToFile(url, localPath, { Authorization: `Bearer ${refreshed.accessToken}` });
+      return localPath;
+    }
+    throw error;
   }
-  if (!downloadRes.ok) return null;
-  await writeResponseToFile(downloadRes, localPath);
-  return localPath;
 }
 
 async function downloadPreview(sound: IncomingSound): Promise<string> {
   const localPath = path.join(CACHE_DIR, `${safeBaseName(sound.id)}${extensionFromUrl(sound.audioUrl)}`);
   if (existsSync(localPath)) return localPath;
-  const res = await fetch(sound.audioUrl);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  await writeResponseToFile(res, localPath);
+  await downloadUrlToFile(sound.audioUrl, localPath);
   return localPath;
 }
 
@@ -260,8 +307,8 @@ async function downloadAudio(sound: IncomingSound): Promise<{ path: string; orig
   try {
     const original = await downloadOriginalFromFreesound(sound);
     if (original) return { path: original, originalUsed: true };
-  } catch (error) {
-    console.warn(`[AUDIAR Bridge] No se pudo obtener original: ${sound.name}`, error);
+  } catch (error: any) {
+    console.warn(`[AUDIAR Bridge] No se pudo obtener original: ${sound.name} — ${error?.message ?? error}`);
   }
 
   // 3) Fall back to the preview; downloadPreview() itself is cache-aware.
