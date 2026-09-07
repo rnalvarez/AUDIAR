@@ -119,11 +119,16 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  async function findFirstFreesoundResult(query: string, apiKey: string, page: number): Promise<{ query: string; result: FreesoundItem } | null> {
+  async function findFirstFreesoundResult(
+    query: string,
+    apiKey: string,
+    page: number,
+    excludeIds: Set<number>,
+  ): Promise<{ query: string; result: FreesoundItem } | null> {
     let lastError: unknown = null;
     for (const variant of fallbackQueries(query)) {
       try {
-        const results = await searchFreesoundDiverse(variant, apiKey, page, 8);
+        const results = await searchFreesoundDiverse(variant, apiKey, page, 8, excludeIds);
         if (results[0]) return { query: variant, result: results[0] };
       } catch (error) {
         lastError = error;
@@ -171,12 +176,8 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
     setAnalyzing(true);
     setAnalysisError(null);
     try {
-      if (!apiKeys.groq?.trim()) {
-        throw new Error("Configurá la API key de Groq antes de analizar.");
-      }
-      if (!apiKeys.freesound?.trim()) {
-        throw new Error("Configurá la API key de Freesound antes de componer el diseño.");
-      }
+      if (!apiKeys.groq?.trim()) throw new Error("Configurá la API key de Groq antes de analizar.");
+      if (!apiKeys.freesound?.trim()) throw new Error("Configurá la API key de Freesound antes de componer el diseño.");
       const dataUrl = await fileToDataUrl(imageFile);
       await buildAutomaticDesign(dataUrl);
     } catch (e: any) {
