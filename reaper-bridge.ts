@@ -1,6 +1,5 @@
 // Habla con bridge/index.ts, que corre local en tu máquina (puerto 8765).
 import type { Layer, SoundtrackElement } from "./types";
-import type { ApiKeys } from "./api-keys";
 import { ELEMENTS } from "./types";
 
 const BRIDGE_URL = "http://localhost:8765";
@@ -42,25 +41,30 @@ export function layerToSendableSound(layer: Layer, element: SoundtrackElement): 
   };
 }
 
-export type SendResult = { ok: true; count: number; originalUsed: number } | { ok: false; notFound: true } | { ok: false; notFound: false; error: string };
+export type SendResult =
+  | { ok: true; count: number }
+  | { ok: false; notFound: true }
+  | { ok: false; notFound: false; error: string };
 
-export async function sendToReaperBridge(sounds: SendableSound[], apiKeys?: ApiKeys): Promise<SendResult> {
+export async function sendToReaperBridge(sounds: SendableSound[]): Promise<SendResult> {
   try {
     const res = await fetch(`${BRIDGE_URL}/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sounds,
-        freesoundApiKey: apiKeys?.freesound,
-        freesoundAccessToken: apiKeys?.freesoundAccessToken,
-      }),
+      body: JSON.stringify({ sounds }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       return { ok: false, notFound: false, error: data.error ?? `error ${res.status}` };
     }
-    return { ok: true, count: data.count ?? sounds.length, originalUsed: data.originalUsed ?? 0 };
+    return { ok: true, count: data.queued ?? data.count ?? sounds.length };
   } catch {
     return { ok: false, notFound: true };
   }
+}
+
+export async function getFreesoundOAuthStatus(): Promise<{ connected: boolean; configured: boolean; expiresAt?: number }> {
+  const res = await fetch(`${BRIDGE_URL}/oauth/status`);
+  if (!res.ok) throw new Error("No se pudo consultar el estado de Freesound.");
+  return res.json();
 }
