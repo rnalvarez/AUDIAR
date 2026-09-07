@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import type { SceneAnalysis } from "./types";
+import type { Layer, ProposalCategory } from "./types";
 import type { ApiKeys } from "./api-keys";
-import { analyzeFrameDirect } from "./direct-providers";
-import { SceneAnalysisView } from "./component-SceneAnalysis";
+import {
+  analyzeFrameDirect,
+  generateSoundDesignProposalDirect,
+  searchFreesoundDirect,
+} from "./direct-providers";
 
 const ACCEPTED_TYPES = "image/jpeg,image/png,image/webp";
-// Límite local de imagen que se envía a Groq.
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_AUTO_LAYERS = 3;
+const AUTO_CATEGORIES: ProposalCategory[] = ["ambientes", "efectos", "foley"];
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -18,23 +22,29 @@ function fileToDataUrl(file: File): Promise<string> {
 }
 
 interface Props {
-  analysis: SceneAnalysis | null;
-  onAnalysisChange: (analysis: SceneAnalysis | null) => void;
   apiKeys: ApiKeys;
+  onDesignGenerated: (layers: Partial<Record<ProposalCategory, Layer[]>>) => void;
 }
 
-/**
- * Fotograma de referencia de la escena — reemplaza a VideoPanel por ahora.
- * Mismo patrón de Object URL en cliente para la preview; el análisis usa
- * una conversión aparte a data URL (base64) solo al analizar, que es lo
- * que espera Groq — no se sube nada a ningún servidor hasta que
- * el usuario aprieta "analizar".
- *
- * El resultado del análisis vive en App (via analysis/onAnalysisChange)
- * porque la etapa 2 (component-SoundDesignProposal.tsx) también lo
- * necesita — analyzing/error se quedan locales, son solo del botón.
- */
-export function FramePanel({ analysis, onAnalysisChange, apiKeys }: Props) {
+function resultToLayer(category: ProposalCategory, idea: { description: string; searchQuery: string }, result: Awaited<ReturnType<typeof searchFreesoundDirect>>[number]): Layer {
+  return {
+    id: `freesound-${category}-${result.id}-${crypto.randomUUID()}`,
+    name: result.name,
+    license: result.license,
+    commerciallySafe: result.commerciallySafe,
+    durationSeconds: result.durationSeconds,
+    audioUrl: result.previewUrl,
+    freesoundUrl: result.freesoundUrl,
+    tags: result.tags,
+    searchQuery: idea.searchQuery,
+    gainDb: 0,
+    pan: 0,
+    muted: false,
+    solo: false,
+  };
+}
+
+export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -44,8 +54,6 @@ export function FramePanel({ analysis, onAnalysisChange, apiKeys }: Props) {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Reemplazar/eliminar ya revocan el Object URL anterior explícitamente;
-  // esto cubre además el caso de que el componente se desmonte con uno activo.
   useEffect(() => {
     return () => {
       if (imageUrl) URL.revokeObjectURL(imageUrl);
@@ -66,7 +74,6 @@ export function FramePanel({ analysis, onAnalysisChange, apiKeys }: Props) {
     });
     setImageFile(file);
     setFileName(file.name);
-    onAnalysisChange(null);
     setAnalysisError(null);
   }
 
@@ -78,9 +85,37 @@ export function FramePanel({ analysis, onAnalysisChange, apiKeys }: Props) {
     setImageFile(null);
     setFileName(null);
     setUploadError(null);
-    onAnalysisChange(null);
     setAnalysisError(null);
     if (inputRef.current) inputRef.current.value = "";
+  }
+
+  async function buildAutomaticDesign(dataUrl: string) {
+    const analysis = await analyzeFrameDirect(dataUrl, apiKeys.groq!);
+    const proposal = await generateSoundDesignProposalDirect(analysis, apiKeys.groq!);
+
+    const generated: Partial<Record<ProposalCategory, Layer[]>> = {};
+
+    for (const category of AUTO_CATEGORIES) {
+      const ideas = proposal[category]
+        .filter((idea) => idea.searchQuery.trim())
+        .slice(0, MAX_AUTO_LAYERS);
+
+      const searched = await Promise.all(
+        ideas.map(async (idea) => {
+          try {
+            const results = await searchFreesoundDirect(idea.searchQuery, apiKeys.freesound!, 5);
+            const first = results[0];
+            return first ? resultToLayer(category, idea, first) : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      generated[category] = searched.filter((layer): layer is Layer => Boolean(layer));
+    }
+
+    onDesignGenerated(generated);
   }
 
   async function handleAnalyze() {
@@ -88,13 +123,16 @@ export function FramePanel({ analysis, onAnalysisChange, apiKeys }: Props) {
     setAnalyzing(true);
     setAnalysisError(null);
     try {
-      const dataUrl = await fileToDataUrl(imageFile);
       if (!apiKeys.groq?.trim()) {
         throw new Error("Configurá la API key de Groq antes de analizar.");
       }
-      onAnalysisChange(await analyzeFrameDirect(dataUrl, apiKeys.groq));
+      if (!apiKeys.freesound?.trim()) {
+        throw new Error("Configurá la API key de Freesound antes de componer el diseño.");
+      }
+      const dataUrl = await fileToDataUrl(imageFile);
+      await buildAutomaticDesign(dataUrl);
     } catch (e: any) {
-      setAnalysisError(e.message ?? "no se pudo analizar la imagen");
+      setAnalysisError(e.message ?? "no se pudo componer el diseño sonoro");
     } finally {
       setAnalyzing(false);
     }
@@ -103,7 +141,7 @@ export function FramePanel({ analysis, onAnalysisChange, apiKeys }: Props) {
   return (
     <div className="frame-panel">
       <h2 className="section-title">Fotograma</h2>
-      <p className="section-subtitle">¿Qué ves y qué podría sonar?</p>
+      <p className="section-subtitle">cargá un fotograma y AUDIAR construye una primera propuesta sonora</p>
 
       {imageUrl ? (
         <img className="frame-panel__preview" src={imageUrl} alt="Fotograma de referencia de la escena" />
@@ -139,17 +177,10 @@ export function FramePanel({ analysis, onAnalysisChange, apiKeys }: Props) {
       {imageUrl && (
         <div className="frame-panel__analysis-zone">
           <button className="frame-panel__analyze-btn" onClick={handleAnalyze} disabled={analyzing}>
-            {analyzing ? "Analizando..." : analysis ? "Volver a analizar" : "Analizar escena"}
+            {analyzing ? "Analizando y componiendo..." : "Analizar escena"}
           </button>
           {analysisError && <p className="frame-panel__analysis-error">{analysisError}</p>}
         </div>
-      )}
-
-      {analysis && (
-        <>
-          <h2 className="section-title section-title--spaced">Análisis de escena</h2>
-          <SceneAnalysisView analysis={analysis} />
-        </>
       )}
     </div>
   );
