@@ -110,7 +110,7 @@ export function LayerStrip({
 
   async function handleSendToReaper() {
     setSendState("connecting");
-    const result = await sendToReaperBridge([layerToSendableSound(layer, element)]);
+    const result = await sendToReaperBridge([layerToSendableSound(layer, element)], apiKeys);
     if (result.ok) setSendState("sent");
     else if (result.notFound) setSendState("not-found");
     else setSendState("error");
@@ -137,14 +137,7 @@ export function LayerStrip({
       const currentLayerId = extractFreesoundId(layer.id);
       if (currentLayerId !== null) shownAlternativeIdsRef.current.add(currentLayerId);
 
-      let results = await searchFreesoundDiverse(
-        query,
-        apiKeys.freesound,
-        alternativePageRef.current,
-        6,
-        shownAlternativeIdsRef.current,
-      );
-
+      let results = await searchFreesoundDiverse(query, apiKeys.freesound, alternativePageRef.current, 6, shownAlternativeIdsRef.current);
       let attempts = 0;
       while (results.length < 3 && attempts < 2) {
         alternativePageRef.current += 1;
@@ -182,7 +175,6 @@ export function LayerStrip({
     if (!alternatives) return;
     const selected = alternatives.filter((result) => selectedAlternatives.has(result.id));
     if (selected.length === 0) return;
-
     const addedIds = onAddResults(selected, layer.searchQuery?.trim() || layer.name);
     onSelectIds(addedIds);
     setAlternatives(null);
@@ -200,24 +192,9 @@ export function LayerStrip({
   return (
     <div className="layer-strip">
       <div className="layer-strip__top">
-        <input
-          type="checkbox"
-          className="layer-strip__select"
-          checked={selected}
-          onChange={onToggleSelect}
-          aria-label={`Seleccionar ${layer.name}`}
-        />
-        <audio
-          ref={audioRef}
-          className="layer-strip__preview"
-          src={layer.audioUrl}
-          controls
-          loop
-          preload="none"
-        />
-        <button className="layer-strip__remove" onClick={onRemove} aria-label={`Quitar ${layer.name}`}>
-          ×
-        </button>
+        <input type="checkbox" className="layer-strip__select" checked={selected} onChange={onToggleSelect} aria-label={`Seleccionar ${layer.name}`} />
+        <audio ref={audioRef} className="layer-strip__preview" src={layer.audioUrl} controls loop preload="none" />
+        <button className="layer-strip__remove" onClick={onRemove} aria-label={`Quitar ${layer.name}`}>×</button>
       </div>
 
       <div className="layer-strip__name" title={layer.name}>{layer.name}</div>
@@ -248,9 +225,7 @@ export function LayerStrip({
           <button className="layer-strip__alternatives-btn" onClick={handleAlternatives} disabled={searchingAlternatives}>
             {searchingAlternatives ? "Buscando..." : alternatives ? "ocultar otros" : "otros sonidos"}
           </button>
-          {alternatives && (
-            <button className="layer-strip__alternatives-close" onClick={handleAlternatives} aria-label="Cerrar otros sonidos">×</button>
-          )}
+          {alternatives && <button className="layer-strip__alternatives-close" onClick={handleAlternatives} aria-label="Cerrar otros sonidos">×</button>}
         </div>
         {alternativeError && <p className="layer-strip__alternative-error">{alternativeError}</p>}
         {alternatives && (
