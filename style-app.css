@@ -107,8 +107,22 @@
 .settings__clear-btn:hover { border-color: var(--unsafe); color: var(--unsafe); }
 
 .send-selection-bar { position: sticky; bottom: 12px; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; padding: 8px 10px; background: var(--panel-raised); border: 1px solid var(--cyan); border-radius: var(--radius); }
+.send-selection-bar__info { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .send-selection-bar__count { font-family: var(--font-mono); font-size: 11px; color: var(--text); }
+.send-selection-bar__download-status { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.send-selection-bar__download-status.is-done { color: var(--safe); }
+.send-selection-bar__download-status.is-error { color: var(--unsafe); }
+.send-selection-bar__actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
 .send-selection-bar__btn { background: var(--cyan); color: #071013; border: none; border-radius: var(--radius); padding: 7px 10px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; cursor: pointer; }
 .send-selection-bar__btn:disabled { opacity: .6; cursor: wait; }
+.send-selection-bar__download-btn { background: none; border: 1px solid var(--border); color: var(--text); }
+.send-selection-bar__download-btn:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+.download-state-error { border-color: var(--unsafe) !important; color: var(--unsafe) !important; }
 .reaper-state-sent { border-color: var(--safe) !important; color: var(--safe) !important; }
 .reaper-state-not-found, .reaper-state-error { border-color: var(--unsafe) !important; color: var(--unsafe) !important; }
+
+@media (max-width: 700px) {
+  .send-selection-bar { flex-direction: column; align-items: stretch; }
+  .send-selection-bar__actions { width: 100%; }
+  .send-selection-bar__actions .send-selection-bar__btn { flex: 1; }
+}
