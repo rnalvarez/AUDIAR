@@ -24,7 +24,7 @@ function dbToLinear(db: number): number {
 }
 
 function extractFreesoundId(id: string): number | null {
-  const match = id.match(/(?:^|-)freesound-(?:ambientes-|efectos-|foley-)?(\d+)(?:-|$)/);
+  const match = id.match(/(?:^|-)(?:freesound-(?:ambientes-|efectos-|foley-)?)(\d+)(?:-|$)/);
   return match ? Number(match[1]) : null;
 }
 
@@ -53,8 +53,6 @@ export function LayerStrip({
   const gainRef = useRef<GainNode | null>(null);
   const pannerRef = useRef<StereoPannerNode | null>(null);
 
-  // Crear una sola cadena Web Audio por elemento <audio>.
-  // No recrearla cuando cambia el src evita InvalidStateError al reemplazar/sumar sonidos.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -147,7 +145,6 @@ export function LayerStrip({
         shownAlternativeIdsRef.current,
       );
 
-      // Si una página no alcanza para llenar opciones nuevas, probar una página posterior.
       let attempts = 0;
       while (results.length < 3 && attempts < 2) {
         alternativePageRef.current += 1;
@@ -194,8 +191,8 @@ export function LayerStrip({
 
   const sendLabel: Record<SendState, string> = {
     idle: "Enviar a REAPER",
-    connecting: "Conectando con REAPER...",
-    sent: "Enviado a REAPER ✓",
+    connecting: "Enviando al bridge...",
+    sent: "Enviado · esperando a REAPER ✓",
     "not-found": "No se encontró REAPER Bridge",
     error: "No se pudo enviar",
   };
