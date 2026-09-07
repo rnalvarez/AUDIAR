@@ -5,8 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "test": "node --experimental-strip-types direct-providers.test.ts"
+    "preview": "vite preview"
   },
   "dependencies": {
     "react": "^18.3.1",
