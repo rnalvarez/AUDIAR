@@ -15,6 +15,7 @@ interface Props {
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onSelectIds: (ids: string[]) => void;
+  onSetCategorySelection: (selectAll: boolean) => void;
   globalSoloActive: boolean;
 }
 
@@ -28,6 +29,7 @@ export function SoundtrackPanel({
   selectedIds,
   onToggleSelect,
   onSelectIds,
+  onSetCategorySelection,
   globalSoloActive,
 }: Props) {
   const [search, setSearch] = useState("");
@@ -104,11 +106,27 @@ export function SoundtrackPanel({
     onLayersChange(layers.filter((l) => l.id !== id));
   }
 
+  const selectedCount = layers.filter((layer) => selectedIds.has(layer.id)).length;
+  const allSelected = layers.length > 0 && selectedCount === layers.length;
+
   return (
     <section className="panel" aria-labelledby={`panel-${elementId}`}>
       <header className="panel__header">
-        <h2 id={`panel-${elementId}`}>{label}</h2>
-        <span className="panel__hint">{hint}</span>
+        <div className="panel__header-main">
+          <div>
+            <h2 id={`panel-${elementId}`}>{label}</h2>
+            <span className="panel__hint">{hint}</span>
+          </div>
+          <button
+            className={`panel__select-all ${allSelected ? "is-active" : ""}`}
+            type="button"
+            onClick={() => onSetCategorySelection(!allSelected)}
+            disabled={layers.length === 0}
+            aria-pressed={allSelected}
+          >
+            {allSelected ? "deseleccionar todos" : "seleccionar todos"}
+          </button>
+        </div>
       </header>
 
       <SourceSelector value={source} onChange={setSource} />
