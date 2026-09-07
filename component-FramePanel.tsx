@@ -8,6 +8,8 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_AUTO_LAYERS = 3;
 const AUTO_CATEGORIES: ProposalCategory[] = ["ambientes", "efectos", "foley"];
 
+type AutoCategory = (typeof AUTO_CATEGORIES)[number];
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -108,12 +110,10 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
   }
 
   async function buildAutomaticDesign(dataUrl: string) {
-    // Una sola llamada a Groq. El análisis ya contiene las familias de
-    // sonidos y Freesound resuelve cada una en un sonido real.
     const analysis = await analyzeFrameDirect(dataUrl, apiKeys.groq!);
     const generated: Partial<Record<ProposalCategory, Layer[]>> = {};
 
-    const cuesByCategory: Record<ProposalCategory, SceneAnalysis["ambience"]> = {
+    const cuesByCategory: Record<AutoCategory, SceneAnalysis["ambience"]> = {
       ambientes: analysis.ambience,
       efectos: analysis.effects,
       foley: analysis.foley,
