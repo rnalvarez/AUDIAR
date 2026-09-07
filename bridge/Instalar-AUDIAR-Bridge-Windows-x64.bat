@@ -1,184 +1,263 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
+title AUDIAR REAPER Bridge - Instalador Windows x64
 
-:: AUDIAR REAPER Bridge - Windows x64 one-click installer
-:: Installs Node.js LTS, downloads the current bridge, installs npm dependencies,
-:: copies the ReaScript to the user's REAPER Scripts folder, and creates a launcher.
-
-title AUDIAR REAPER Bridge - Instalador
-
+set "LOG=%TEMP%\AUDIAR-Bridge-Install.log"
 set "INSTALL_DIR=%LOCALAPPDATA%\AUDIAR\REAPER-Bridge"
 set "ZIP_FILE=%TEMP%\AUDIAR-main.zip"
+set "EXTRACT_DIR=%TEMP%\AUDIAR-extract-%RANDOM%"
 set "NODE_VERSION=24.20.0"
 set "NODE_MSI=%TEMP%\node-v%NODE_VERSION%-x64.msi"
 set "NODE_URL=https://nodejs.org/dist/v%NODE_VERSION%/node-v%NODE_VERSION%-x64.msi"
 set "REPO_ZIP=https://github.com/rnalvarez/AUDIAR/archive/refs/heads/main.zip"
 set "REAPER_SCRIPTS=%APPDATA%\REAPER\Scripts\AUDIAR"
-
-:: ---- Require Windows x64 ----
-if /I not "%PROCESSOR_ARCHITECTURE%"=="AMD64" if /I not "%PROCESSOR_IDENTIFIER%"=="AMD64 Family 23 Model 1 Stepping 2, AuthenticAMD" (
-  echo.
-  echo Este instalador es exclusivamente para Windows x64.
-  echo Arquitectura detectada: %PROCESSOR_ARCHITECTURE%
-  pause
-  exit /b 1
-)
-
-:: ---- Require elevation ----
-net session >nul 2>&1
-if not "%errorlevel%"=="0" (
-  echo Solicitando permisos de administrador...
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-  exit /b
-)
-
-color 0B
-cls
-echo ============================================================
-echo              AUDIAR REAPER Bridge - Windows x64
-echo ============================================================
-echo.
-echo Este instalador va a:
-echo   1. Instalar Node.js %NODE_VERSION% LTS si hace falta.
-echo   2. Descargar la version actual del Bridge de AUDIAR.
-echo   3. Instalar sus dependencias npm.
-echo   4. Copiar el script de REAPER.
-echo   5. Crear un acceso directo para iniciar el Bridge.
-echo.
-
-:: ---- Check Node ----
-where node >nul 2>&1
-if "%errorlevel%"=="0" (
-  for /f "delims=" %%V in ('node -v') do set "NODE_INSTALLED=%%V"
-  echo Node.js detectado: !NODE_INSTALLED!
-) else (
-  echo Node.js no esta instalado. Descargando Node.js %NODE_VERSION% LTS...
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%NODE_URL%' -OutFile '%NODE_MSI%'"
-  if not exist "%NODE_MSI%" (
-    echo ERROR: no se pudo descargar Node.js.
-    pause
-    exit /b 1
-  )
-  echo Instalando Node.js...
-  msiexec /i "%NODE_MSI%" /qn /norestart
-  if not "%errorlevel%"=="0" (
-    echo ERROR: la instalacion de Node.js devolvio el codigo %errorlevel%.
-    pause
-    exit /b 1
-  )
-  set "PATH=%ProgramFiles%\nodejs;%PATH%"
-  echo Node.js instalado correctamente.
-)
-
-:: ---- Download current AUDIAR repository ----
-echo.
-echo Descargando AUDIAR desde GitHub...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%REPO_ZIP%' -OutFile '%ZIP_FILE%'"
-if not exist "%ZIP_FILE%" (
-  echo ERROR: no se pudo descargar AUDIAR.
-  pause
-  exit /b 1
-)
-
-:: ---- Clean/install bridge ----
-if exist "%INSTALL_DIR%" rmdir /s /q "%INSTALL_DIR%"
-mkdir "%INSTALL_DIR%"
-
-set "EXTRACT_DIR=%TEMP%\AUDIAR-extract-%RANDOM%"
-if exist "%EXTRACT_DIR%" rmdir /s /q "%EXTRACT_DIR%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%ZIP_FILE%' -DestinationPath '%EXTRACT_DIR%' -Force"
-if not exist "%EXTRACT_DIR%" (
-  echo ERROR: no se pudo descomprimir AUDIAR.
-  pause
-  exit /b 1
-)
-
-for /d %%D in ("%EXTRACT_DIR%\AUDIAR-main*") do set "REPO_DIR=%%~fD"
-if not defined REPO_DIR (
-  echo ERROR: no se encontro la carpeta del repositorio descargado.
-  pause
-  exit /b 1
-)
-
-xcopy "%REPO_DIR%\bridge\*" "%INSTALL_DIR%\" /E /I /Y >nul
-if not exist "%INSTALL_DIR%\package.json" (
-  echo ERROR: no se encontro bridge\package.json.
-  pause
-  exit /b 1
-)
-
-:: ---- npm dependencies ----
-echo Instalando dependencias del Bridge...
-cd /d "%INSTALL_DIR%"
-call npm install
-if not "%errorlevel%"=="0" (
-  echo ERROR: npm install fallo.
-  pause
-  exit /b 1
-)
-
-:: ---- REAPER Lua script ----
-echo.
-echo Instalando script de REAPER...
-mkdir "%REAPER_SCRIPTS%" 2>nul
-copy /Y "%INSTALL_DIR%\audiar-bridge.lua" "%REAPER_SCRIPTS%\audiar-bridge.lua" >nul
-if not exist "%REAPER_SCRIPTS%\audiar-bridge.lua" (
-  echo AVISO: no se pudo copiar automaticamente el script de REAPER.
-  echo Podras cargarlo manualmente desde:
-  echo %INSTALL_DIR%\audiar-bridge.lua
-)
-
-:: ---- Launcher ----
 set "LAUNCHER=%INSTALL_DIR%\Iniciar-AUDIAR-Bridge.bat"
->\"%LAUNCHER%" echo @echo off
->>"%LAUNCHER%" echo title AUDIAR REAPER Bridge
->>"%LAUNCHER%" echo cd /d "%INSTALL_DIR%"
->>"%LAUNCHER%" echo set "PATH=%ProgramFiles%\nodejs;%%PATH%%"
->>"%LAUNCHER%" echo echo.
->>"%LAUNCHER%" echo echo AUDIAR REAPER Bridge escuchando en http://localhost:8765
->>"%LAUNCHER%" echo echo Deja esta ventana abierta mientras uses AUDIAR.
->>"%LAUNCHER%" echo echo.
->>"%LAUNCHER%" echo call npm start
->>"%LAUNCHER%" echo pause
 
-:: ---- Desktop shortcut ----
-echo Creando acceso directo en el escritorio...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws=New-Object -ComObject WScript.Shell; $sc=$ws.CreateShortcut([Environment]::GetFolderPath('Desktop')+'\AUDIAR REAPER Bridge.lnk'); $sc.TargetPath='%LAUNCHER%'; $sc.WorkingDirectory='%INSTALL_DIR%'; $sc.IconLocation='%SystemRoot%\System32\SHELL32.dll,137'; $sc.Save()"
-
-:: ---- Optional README ----
-copy /Y "%REPO_DIR%\bridge\README.md" "%INSTALL_DIR%\README.md" >nul 2>&1
-
-:: ---- Cleanup ----
-del /q "%ZIP_FILE%" >nul 2>&1
-rmdir /s /q "%EXTRACT_DIR%" >nul 2>&1
-del /q "%NODE_MSI%" >nul 2>&1
-
-cls
-echo ============================================================
-echo                 INSTALACION COMPLETADA
- echo ============================================================
+> "%LOG%" echo [AUDIAR] Instalacion iniciada %date% %time%
+call :main
+set "RC=%errorlevel%"
 echo.
-echo Bridge instalado en:
-echo %INSTALL_DIR%
-echo.
-echo Script de REAPER:
-echo %REAPER_SCRIPTS%\audiar-bridge.lua
-echo.
-echo En el escritorio se creo:
-echo AUDIAR REAPER Bridge.lnk
-echo.
-echo PROXIMO PASO:
-echo 1. Abri REAPER.
-echo 2. Actions - Show action list.
-echo 3. New action - Load ReaScript.
-echo 4. Carga audiar-bridge.lua desde:
-echo    %REAPER_SCRIPTS%\audiar-bridge.lua
-echo 5. Ejecutalo una vez.
-echo 6. Inicia el Bridge desde el acceso directo del escritorio.
-echo.
-echo Cuando la consola muestre:
-echo   AUDIAR REAPER Bridge escuchando en http://localhost:8765
-echo ya podes usar "Enviar seleccion a REAPER" desde AUDIAR.
+if "%RC%"=="0" (
+  echo ============================================================
+  echo INSTALACION COMPLETADA
+  echo ============================================================
+  echo.
+  echo Bridge instalado en:
+  echo   %INSTALL_DIR%
+  echo.
+  echo Script de REAPER:
+  echo   %REAPER_SCRIPTS%\audiar-bridge.lua
+  echo.
+  echo Se creo un acceso directo:
+  echo   AUDIAR REAPER Bridge
+  echo.
+  echo Siguiente paso:
+  echo   En REAPER: Actions ^> Show action list
+  echo   ^> New action... ^> Load ReaScript...
+  echo   y elegi el archivo Lua indicado arriba.
+  echo.
+  echo Despues, inicia "AUDIAR REAPER Bridge" desde el escritorio.
+) else (
+  echo ============================================================
+  echo LA INSTALACION NO TERMINO CORRECTAMENTE
+  echo ============================================================
+  echo.
+  echo Codigo de error: %RC%
+  echo.
+  echo El instalador NO se va a cerrar para que puedas leer el error.
+  echo Registro:
+  echo   %LOG%
+)
 echo.
 pause
+exit /b %RC%
+
+:main
+rem --- Detectar arquitectura ---
+set "ARCH=%PROCESSOR_ARCHITECTURE%"
+if defined PROCESSOR_ARCHITEW6432 set "ARCH=%PROCESSOR_ARCHITEW6432%"
+if /I not "%ARCH%"=="AMD64" (
+  call :fail 10 "Este instalador requiere Windows x64 (AMD64). Arquitectura detectada: %ARCH%"
+  exit /b 10
+)
+
+rem --- Comprobar PowerShell ---
+where powershell.exe >nul 2>&1
+if errorlevel 1 (
+  call :fail 11 "No se encontro PowerShell."
+  exit /b 11
+)
+
+rem --- Detectar / elevar a administrador ---
+net session >nul 2>&1
+if errorlevel 1 (
+  echo.
+  echo Se necesitan permisos de administrador para instalar Node.js.
+  echo Se abrira una segunda ventana elevada.
+  echo.
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+    "Start-Process -FilePath '%ComSpec%' -Verb RunAs -ArgumentList '/c','\"\"%~f0\"\" --elevated' -Wait"
+  if errorlevel 1 (
+    call :fail 12 "No se pudo solicitar permisos de administrador o la instalacion elevada fue cancelada."
+    exit /b 12
+  )
+  exit /b 0
+)
+
+echo [AUDIAR] Ejecutando como administrador.
+>> "%LOG%" echo [AUDIAR] Ejecutando como administrador.
+
+rem --- Detectar Node.js ---
+set "NODE_EXE="
+if exist "%ProgramFiles%\nodejs\node.exe" set "NODE_EXE=%ProgramFiles%\nodejs\node.exe"
+if not defined NODE_EXE (
+  for /f "delims=" %%N in ('where node 2^>nul') do if not defined NODE_EXE set "NODE_EXE=%%N"
+)
+
+if defined NODE_EXE (
+  for /f "delims=" %%V in ('"%NODE_EXE%" -v 2^>nul') do set "NODE_INSTALLED=%%V"
+  echo Node.js detectado: !NODE_INSTALLED!
+  >> "%LOG%" echo [AUDIAR] Node.js detectado: !NODE_INSTALLED!
+) else (
+  echo.
+  echo Node.js no esta instalado.
+  echo Descargando Node.js %NODE_VERSION% LTS...
+  >> "%LOG%" echo [AUDIAR] Descargando %NODE_URL%
+
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri '%NODE_URL%' -OutFile '%NODE_MSI%'"
+  if errorlevel 1 (
+    call :fail 20 "No se pudo descargar Node.js. Revisa tu conexion a Internet."
+    exit /b 20
+  )
+
+  if not exist "%NODE_MSI%" (
+    call :fail 21 "La descarga de Node.js no produjo el archivo MSI."
+    exit /b 21
+  )
+
+  echo Instalando Node.js...
+  >> "%LOG%" echo [AUDIAR] Instalando Node.js
+  msiexec.exe /i "%NODE_MSI%" /passive /norestart
+  if errorlevel 1 (
+    call :fail 22 "La instalacion de Node.js fallo. Codigo MSI: %errorlevel%"
+    exit /b 22
+  )
+
+  set "PATH=%ProgramFiles%\nodejs;%PATH%"
+  set "NODE_EXE=%ProgramFiles%\nodejs\node.exe"
+
+  if not exist "%NODE_EXE%" (
+    call :fail 23 "Node.js termino de instalarse pero node.exe no aparece en Program Files."
+    exit /b 23
+  )
+
+  for /f "delims=" %%V in ('"%NODE_EXE%" -v 2^>nul') do set "NODE_INSTALLED=%%V"
+  echo Node.js instalado: !NODE_INSTALLED!
+)
+
+rem --- Descargar AUDIAR ---
+echo.
+echo Descargando AUDIAR...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO_ZIP%' -OutFile '%ZIP_FILE%'"
+if errorlevel 1 (
+  call :fail 30 "No se pudo descargar AUDIAR desde GitHub."
+  exit /b 30
+)
+if not exist "%ZIP_FILE%" (
+  call :fail 31 "No se encontro el ZIP descargado de AUDIAR."
+  exit /b 31
+)
+
+if exist "%EXTRACT_DIR%" rmdir /s /q "%EXTRACT_DIR%"
+mkdir "%EXTRACT_DIR%" >nul 2>&1
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+  "Expand-Archive -LiteralPath '%ZIP_FILE%' -DestinationPath '%EXTRACT_DIR%' -Force"
+if errorlevel 1 (
+  call :fail 32 "No se pudo descomprimir AUDIAR."
+  exit /b 32
+)
+
+set "REPO_DIR="
+for /d %%D in ("%EXTRACT_DIR%\AUDIAR-main*") do if not defined REPO_DIR set "REPO_DIR=%%~fD"
+
+if not defined REPO_DIR (
+  call :fail 33 "No se encontro la carpeta AUDIAR-main despues de descomprimir."
+  exit /b 33
+)
+
+if not exist "%REPO_DIR%\bridge\package.json" (
+  call :fail 34 "No se encontro bridge\package.json."
+  exit /b 34
+)
+
+if not exist "%REPO_DIR%\bridge\index.ts" (
+  call :fail 35 "No se encontro bridge\index.ts."
+  exit /b 35
+)
+
+rem --- Instalar archivos del Bridge ---
+echo.
+echo Instalando AUDIAR REAPER Bridge...
+if exist "%INSTALL_DIR%" rmdir /s /q "%INSTALL_DIR%"
+mkdir "%INSTALL_DIR%" >nul 2>&1
+xcopy "%REPO_DIR%\bridge\*" "%INSTALL_DIR%\" /E /I /Y >nul
+if errorlevel 1 (
+  call :fail 40 "No se pudieron copiar los archivos del Bridge."
+  exit /b 40
+)
+
+cd /d "%INSTALL_DIR%"
+
+echo Instalando dependencias npm...
+call "%ProgramFiles%\nodejs\npm.cmd" install
+if errorlevel 1 (
+  call :fail 41 "npm install fallo. Revisa el registro: %LOG%"
+  exit /b 41
+)
+
+rem --- Instalar ReaScript ---
+echo.
+echo Instalando script de REAPER...
+mkdir "%REAPER_SCRIPTS%" >nul 2>&1
+if not exist "%INSTALL_DIR%\audiar-bridge.lua" (
+  call :fail 50 "No se encontro audiar-bridge.lua."
+  exit /b 50
+)
+copy /Y "%INSTALL_DIR%\audiar-bridge.lua" "%REAPER_SCRIPTS%\audiar-bridge.lua" >nul
+if errorlevel 1 (
+  call :fail 51 "No se pudo copiar el ReaScript a la carpeta de REAPER."
+  exit /b 51
+)
+
+rem --- Crear lanzador ---
+(
+  echo @echo off
+  echo title AUDIAR REAPER Bridge
+  echo cd /d "%INSTALL_DIR%"
+  echo set "PATH=%ProgramFiles%\nodejs;%%PATH%%"
+  echo echo.
+  echo echo ============================================================
+  echo echo AUDIAR REAPER Bridge
+  echo echo Escuchando en http://localhost:8765
+  echo echo Deja esta ventana abierta mientras uses AUDIAR.
+  echo echo ============================================================
+  echo echo.
+  echo call npm start
+  echo echo.
+  echo echo El Bridge termino. Presiona una tecla para cerrar.
+  echo pause
+) > "%LAUNCHER%"
+
+if not exist "%LAUNCHER%" (
+  call :fail 60 "No se pudo crear el lanzador del Bridge."
+  exit /b 60
+)
+
+rem --- Acceso directo ---
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ws=New-Object -ComObject WScript.Shell; $sc=$ws.CreateShortcut([Environment]::GetFolderPath('Desktop')+'\AUDIAR REAPER Bridge.lnk'); $sc.TargetPath='%LAUNCHER%'; $sc.WorkingDirectory='%INSTALL_DIR%'; $sc.IconLocation='%SystemRoot%\System32\SHELL32.dll,137'; $sc.Save()"
+if errorlevel 1 (
+  echo AVISO: no se pudo crear el acceso directo. El Bridge igualmente quedo instalado.
+  >> "%LOG%" echo [AUDIAR] Aviso: no se pudo crear acceso directo.
+)
+
+rem --- Copiar README ---
+if exist "%REPO_DIR%\bridge\README.md" copy /Y "%REPO_DIR%\bridge\README.md" "%INSTALL_DIR%\README.md" >nul
+
+rem --- Limpiar ---
+del /q "%ZIP_FILE%" >nul 2>&1
+del /q "%NODE_MSI%" >nul 2>&1
+rmdir /s /q "%EXTRACT_DIR%" >nul 2>&1
+
+>> "%LOG%" echo [AUDIAR] Instalacion completada %date% %time%
 exit /b 0
+
+:fail
+echo.
+echo ERROR %~1:
+echo %~2
+>> "%LOG%" echo [ERROR %~1] %~2
+exit /b %~1
