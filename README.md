@@ -42,4 +42,4 @@ No hace falta configurar `VITE_API_BASE_URL`, Cloudflare ni ningún Worker.
 
 ## REAPER Bridge
 
-Para transferir Layers a REAPER: `cd bridge`, luego `npm install` y `npm start`. Después cargá `bridge/audiar-bridge.lua` en REAPER como ReaScript.
+Para transferir Layers a REAPER: `cd bridge`, luego `npm install` y `npm start`. Después cargá `bridge/audiar-bridge.lua` en REAPER como ReaScript..
