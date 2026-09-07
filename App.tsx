@@ -39,6 +39,15 @@ export default function App() {
     });
   }
 
+  function selectIds(ids: string[]) {
+    if (ids.length === 0) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
   const selectedLayers = ELEMENTS.flatMap(({ id }) =>
     layers[id].filter((layer) => selectedIds.has(layer.id)).map((layer) => ({ layer, element: id }))
   );
@@ -71,6 +80,7 @@ export default function App() {
             apiKeys={apiKeys}
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
+            onSelectIds={selectIds}
           />
         ))}
       </div>
