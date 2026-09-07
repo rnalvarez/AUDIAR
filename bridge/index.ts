@@ -1,9 +1,6 @@
-// AUDIAR REAPER Bridge — servidor local, corre en tu máquina, nunca en
-// internet. Recibe pedidos de AUDIAR (navegador), descarga los audios, y
-// deja archivos de "trabajo" en la carpeta que audiar-bridge.lua vigila
-// desde adentro de REAPER. No habla con REAPER directamente.
-//
-// Ver bridge/README.md para instalación completa.
+// AUDIAR REAPER Bridge — servidor local, corre en tu máquina, nunca en internet.
+// Recibe pedidos de AUDIAR, descarga los audios y deja jobs para el ReaScript.
+// Con OAuth2 de Freesound intenta descargar el archivo ORIGINAL; sin OAuth usa el preview.
 
 import { createServer } from "node:http";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -12,6 +9,7 @@ import path from "node:path";
 import os from "node:os";
 
 const PORT = 8765;
+const FREESOUND_API = "https://freesound.org/apiv2";
 
 function defaultReaperResourcePath(): string {
   const home = os.homedir();
@@ -36,6 +34,7 @@ interface IncomingSound {
   name: string;
   element: string;
   audioUrl: string;
+  freesoundId?: number;
   gainDb?: number;
   pan?: number;
   license?: string;
@@ -59,22 +58,85 @@ function luaStringLiteral(value: string): string {
   return '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n") + '"';
 }
 
-function safeFileName(id: string, url: string): string {
-  const ext = path.extname(new URL(url).pathname) || ".mp3";
-  const safe = id.replace(/[^a-zA-Z0-9_-]/g, "_");
-  return `${safe}${ext}`;
+function safeBaseName(id: string): string {
+  return id.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
-async function downloadAudio(sound: IncomingSound): Promise<string> {
-  const fileName = safeFileName(sound.id, sound.audioUrl);
-  const localPath = path.join(CACHE_DIR, fileName);
-  if (existsSync(localPath)) return localPath;
+function extensionFromUrl(url: string): string {
+  try {
+    return path.extname(new URL(url).pathname) || ".mp3";
+  } catch {
+    return ".mp3";
+  }
+}
 
-  const res = await fetch(sound.audioUrl);
-  if (!res.ok) throw new Error(`No se pudo descargar ${sound.name}: HTTP ${res.status}`);
+function extensionFromOriginal(type: unknown, originalFilename: unknown): string {
+  if (typeof originalFilename === "string") {
+    const ext = path.extname(originalFilename);
+    if (ext) return ext.toLowerCase();
+  }
+  const value = String(type ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const extensions: Record<string, string> = {
+    wav: ".wav", wave: ".wav", aif: ".aif", aiff: ".aiff", flac: ".flac",
+    ogg: ".ogg", mp3: ".mp3", m4a: ".m4a",
+  };
+  return extensions[value] ?? ".wav";
+}
+
+async function fetchOriginalInfo(
+  sound: IncomingSound,
+  apiKey: string,
+): Promise<{ downloadUrl: string; extension: string } | null> {
+  if (sound.freesoundId == null) return null;
+  const url = new URL(`${FREESOUND_API}/sounds/${sound.freesoundId}/`);
+  url.searchParams.set("token", apiKey);
+  url.searchParams.set("fields", "download,type,original_filename");
+  const res = await fetch(url.toString());
+  if (!res.ok) return null;
+  const data: any = await res.json();
+  if (typeof data?.download !== "string" || !data.download) return null;
+  return {
+    downloadUrl: data.download,
+    extension: extensionFromOriginal(data?.type, data?.original_filename),
+  };
+}
+
+async function downloadUrlToCache(id: string, url: string, extension: string, headers?: HeadersInit): Promise<string> {
+  const localPath = path.join(CACHE_DIR, `${safeBaseName(id)}${extension}`);
+  if (existsSync(localPath)) return localPath;
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const buffer = Buffer.from(await res.arrayBuffer());
   await writeFile(localPath, buffer);
   return localPath;
+}
+
+async function downloadAudio(
+  sound: IncomingSound,
+  freesoundApiKey?: string,
+  freesoundAccessToken?: string,
+): Promise<{ path: string; originalUsed: boolean }> {
+  if (sound.source === "freesound" && freesoundApiKey?.trim() && freesoundAccessToken?.trim()) {
+    try {
+      const original = await fetchOriginalInfo(sound, freesoundApiKey.trim());
+      if (original) {
+        const path = await downloadUrlToCache(
+          `${sound.id}-original`,
+          original.downloadUrl,
+          original.extension,
+          { Authorization: `Bearer ${freesoundAccessToken.trim()}` },
+        );
+        return { path, originalUsed: true };
+      }
+    } catch (error) {
+      console.warn(`[AUDIAR Bridge] No se pudo obtener el original de ${sound.name}; uso preview.`, error);
+    }
+  }
+
+  return {
+    path: await downloadUrlToCache(sound.id, sound.audioUrl, extensionFromUrl(sound.audioUrl)),
+    originalUsed: false,
+  };
 }
 
 async function writeJobFile(sound: DownloadedSound): Promise<string> {
@@ -85,7 +147,6 @@ async function writeJobFile(sound: DownloadedSound): Promise<string> {
   ];
   if (typeof sound.gainDb === "number") fields.push(`gainDb = ${sound.gainDb}`);
   if (typeof sound.pan === "number") fields.push(`pan = ${sound.pan}`);
-
   const lua = `return {\n  { ${fields.join(", ")} },\n}\n`;
   const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   const fileName = `job_${uniqueSuffix}.lua`;
@@ -98,22 +159,23 @@ async function ensureDirs() {
   await mkdir(CACHE_DIR, { recursive: true });
 }
 
-async function downloadAndQueueSound(sound: IncomingSound): Promise<{ ok: true; job: string } | { ok: false; error: string }> {
+async function downloadAndQueueSound(
+  sound: IncomingSound,
+  freesoundApiKey?: string,
+  freesoundAccessToken?: string,
+): Promise<void> {
   try {
-    const localPath = await downloadAudio(sound);
-    const job = await writeJobFile({
-      path: localPath,
+    const local = await downloadAudio(sound, freesoundApiKey, freesoundAccessToken);
+    await writeJobFile({
+      path: local.path,
       track: sound.element,
       name: sound.name,
       gainDb: sound.gainDb,
       pan: sound.pan,
     });
-    console.log(`[AUDIAR Bridge] Listo para REAPER: ${sound.name}`);
-    return { ok: true, job };
+    console.log(`[AUDIAR Bridge] Listo para REAPER: ${sound.name}${local.originalUsed ? " [ORIGINAL]" : " [preview]"}`);
   } catch (err: any) {
-    const message = err?.message ?? `error descargando ${sound.name}`;
-    console.error(`[AUDIAR Bridge] ${message}`);
-    return { ok: false, error: message };
+    console.error(`[AUDIAR Bridge] Error descargando ${sound.name}:`, err?.message ?? err);
   }
 }
 
@@ -140,27 +202,26 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      // Respondemos inmediatamente: las descargas continúan en paralelo en
-      // segundo plano. Cada archivo que termina genera su propio job y puede
-      // ser importado por REAPER sin esperar al resto del lote.
-      json(res, 202, { ok: true, queued: sounds.length });
+      const freesoundApiKey = typeof body?.freesoundApiKey === "string" ? body.freesoundApiKey : undefined;
+      const freesoundAccessToken = typeof body?.freesoundAccessToken === "string" ? body.freesoundAccessToken : undefined;
 
-      void Promise.all(sounds.map(downloadAndQueueSound));
+      // El navegador no espera a que terminen las descargas. Cada sonido genera
+      // su job apenas termina y REAPER lo recoge independientemente.
+      json(res, 202, { ok: true, queued: sounds.length });
+      void Promise.all(sounds.map((sound) => downloadAndQueueSound(sound, freesoundApiKey, freesoundAccessToken)));
     } catch (err: any) {
-      json(res, 500, { error: err?.message ?? "error inesperado en el bridge" });
+      if (!res.headersSent) json(res, 500, { error: err?.message ?? "error inesperado en el bridge" });
     }
     return;
   }
 
-  if (req.url !== "/ping") {
-    json(res, 404, { error: "not found" });
-  }
+  json(res, 404, { error: "not found" });
 });
 
 ensureDirs().then(() => {
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`AUDIAR REAPER Bridge escuchando en http://localhost:${PORT}`);
     console.log(`Carpeta de trabajos: ${JOBS_DIR}`);
-    console.log(`Asegurate de tener audiar-bridge.lua cargado y corriendo en REAPER (ver README.md).`);
+    console.log(`Asegurate de tener audiar-bridge.lua cargado y corriendo en REAPER.`);
   });
 });
