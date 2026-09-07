@@ -30,6 +30,7 @@ export type Certainty = "observed" | "probable" | "possible";
 export interface SoundCue {
   text: string;
   certainty: Certainty;
+  searchQuery?: string;
 }
 
 export interface SceneAnalysis {
