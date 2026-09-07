@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AUDIAR · Conectando Freesound</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 680px; margin: 12vh auto; padding: 24px; line-height: 1.5; }
+      h1 { margin-bottom: 8px; }
+      #status { white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>AUDIAR · Freesound</h1>
+    <p id="status">Procesando autorización…</p>
+    <script>
+      const BRIDGE_URL = "http://localhost:8765";
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code");
+      const state = params.get("state");
+      const error = params.get("error");
+      const errorDescription = params.get("error_description");
+      const status = document.getElementById("status");
+
+      async function finish() {
+        if (error) throw new Error(errorDescription || error || "Freesound rechazó la autorización.");
+        if (!code || !state) throw new Error("Falta el código o estado de autorización.");
+
+        const res = await fetch(`${BRIDGE_URL}/oauth/callback`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, state }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || "El bridge no pudo completar la autorización.");
+
+        status.textContent = "Freesound quedó conectado. Esta ventana se cerrará automáticamente.";
+        if (window.opener) {
+          window.opener.postMessage({ source: "audiar-freesound-oauth", ok: true, expiresAt: data.expiresAt }, window.location.origin);
+          window.setTimeout(() => window.close(), 700);
+        }
+      }
+
+      finish().catch((err) => {
+        status.textContent = `No se pudo conectar con Freesound.\n\n${err.message}\n\nPodés cerrar esta ventana e intentar nuevamente.`;
+        if (window.opener) {
+          window.opener.postMessage({ source: "audiar-freesound-oauth", ok: false, error: err.message }, window.location.origin);
+        }
+      });
+    </script>
+  </body>
+</html>
