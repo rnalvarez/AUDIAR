@@ -1,12 +1,9 @@
-// Guarda las API keys de Freesound y Groq en localStorage del navegador,
-// para poder usar AUDIAR sin correr/desplegar el Worker. Uso personal
-// explícito (RAM: "las claves son de uso personal y no está expuesto a
-// otras personas") — por eso viven en el cliente en vez de detrás de un
-// backend. Si en algún momento esto se comparte con otras personas, esto
-// deja de ser lo correcto y hay que volver al Worker como único camino.
-
+// Guarda las credenciales de Freesound y Groq en localStorage del navegador,
+// para uso personal. El access token OAuth de Freesound es opcional y permite
+// al bridge local descargar el archivo original en vez del preview.
 export interface ApiKeys {
   freesound?: string;
+  freesoundAccessToken?: string;
   groq?: string;
 }
 
@@ -19,6 +16,7 @@ export function loadApiKeys(): ApiKeys {
     const parsed = JSON.parse(raw);
     return {
       freesound: typeof parsed?.freesound === "string" ? parsed.freesound : undefined,
+      freesoundAccessToken: typeof parsed?.freesoundAccessToken === "string" ? parsed.freesoundAccessToken : undefined,
       groq: typeof parsed?.groq === "string" ? parsed.groq : undefined,
     };
   } catch {
