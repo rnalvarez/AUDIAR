@@ -1,9 +1,9 @@
-// Guarda las credenciales de Freesound y Groq en localStorage del navegador,
-// para uso personal. El access token OAuth de Freesound es opcional y permite
-// al bridge local descargar el archivo original en vez del preview.
+// Guarda solamente las credenciales que son seguras para mantener en el navegador.
+// El Client Secret y los tokens OAuth de Freesound se guardan exclusivamente
+// en el bridge local, nunca en GitHub Pages ni en localStorage.
 export interface ApiKeys {
   freesound?: string;
-  freesoundAccessToken?: string;
+  freesoundClientId?: string;
   groq?: string;
 }
 
@@ -16,7 +16,7 @@ export function loadApiKeys(): ApiKeys {
     const parsed = JSON.parse(raw);
     return {
       freesound: typeof parsed?.freesound === "string" ? parsed.freesound : undefined,
-      freesoundAccessToken: typeof parsed?.freesoundAccessToken === "string" ? parsed.freesoundAccessToken : undefined,
+      freesoundClientId: typeof parsed?.freesoundClientId === "string" ? parsed.freesoundClientId : undefined,
       groq: typeof parsed?.groq === "string" ? parsed.groq : undefined,
     };
   } catch {
