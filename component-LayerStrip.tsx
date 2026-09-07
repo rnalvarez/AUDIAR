@@ -13,6 +13,7 @@ interface Props {
   onChange: (patch: Partial<Layer>) => void;
   onRemove: () => void;
   onAddResults: (results: FreesoundResultItem[], searchQuery?: string) => string[];
+  onSelectIds: (ids: string[]) => void;
   apiKeys: ApiKeys;
 }
 
@@ -31,6 +32,7 @@ export function LayerStrip({
   onChange,
   onRemove,
   onAddResults,
+  onSelectIds,
   apiKeys,
 }: Props) {
   const [sendState, setSendState] = useState<SendState>("idle");
@@ -42,13 +44,13 @@ export function LayerStrip({
   const contextRef = useRef<AudioContext | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const pannerRef = useRef<StereoPannerNode | null>(null);
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    const AudioContextCtor = window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextCtor) return;
 
     audio.crossOrigin = "anonymous";
@@ -61,7 +63,6 @@ export function LayerStrip({
     panner.connect(context.destination);
 
     contextRef.current = context;
-    sourceRef.current = source;
     gainRef.current = gain;
     pannerRef.current = panner;
 
@@ -77,11 +78,10 @@ export function LayerStrip({
         gain.disconnect();
         panner.disconnect();
       } catch {
-        // La cadena puede haber sido desconectada por el navegador al desmontar.
+        // La cadena puede haber sido desconectada al desmontar.
       }
       void context.close();
       contextRef.current = null;
-      sourceRef.current = null;
       gainRef.current = null;
       pannerRef.current = null;
     };
@@ -156,7 +156,7 @@ export function LayerStrip({
     const selected = alternatives.filter((result) => selectedAlternatives.has(result.id));
     if (selected.length === 0) return;
     const addedIds = onAddResults(selected, layer.searchQuery?.trim() || layer.name);
-    addedIds.forEach(() => onToggleSelect());
+    onSelectIds(addedIds);
     setAlternatives(null);
     setSelectedAlternatives(new Set());
   }
