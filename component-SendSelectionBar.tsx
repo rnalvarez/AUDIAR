@@ -6,13 +6,13 @@ type SendState = "idle" | "connecting" | "sent" | "not-found" | "error";
 
 interface Props {
   selectedLayers: { layer: Layer; element: SoundtrackElement }[];
-  onSent: () => void; // limpia la selección después de un envío exitoso
+  onSent: () => void;
 }
 
 const LABEL: Record<SendState, string> = {
   idle: "Enviar selección a REAPER",
-  connecting: "Conectando con REAPER...",
-  sent: "Enviado a REAPER ✓",
+  connecting: "Enviando al bridge...",
+  sent: "Enviado · esperando a REAPER ✓",
   "not-found": "No se encontró REAPER Bridge",
   error: "No se pudo enviar",
 };
