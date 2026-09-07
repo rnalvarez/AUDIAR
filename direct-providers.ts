@@ -4,8 +4,8 @@
 import type { Certainty, FreesoundResultItem, SceneAnalysis, SoundDesignProposal, SoundIdea } from "./types";
 
 const GROQ_CHAT_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
-const VISION_MODEL = "qwen/qwen3.6-27b"; // verificar vigencia en console.groq.com/docs/vision
-const PROPOSAL_MODEL = "qwen/qwen3.6-27b"; // compatibilidad con el motor anterior
+const VISION_MODEL = "qwen/qwen3.6-27b";
+const PROPOSAL_MODEL = "qwen/qwen3.6-27b";
 const FREESOUND_SEARCH_ENDPOINT = "https://freesound.org/apiv2/search/text/";
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_PROPOSALS_PER_CATEGORY = 6;
@@ -21,18 +21,14 @@ export function isCommerciallySafeDirect(licenseUrlOrName: string): boolean {
   return false;
 }
 
-export async function searchFreesoundDirect(
-  query: string,
-  apiKey: string,
-  maxResults = 12
-): Promise<FreesoundResultItem[]> {
+export async function searchFreesoundDirect(query: string, apiKey: string, maxResults = 12): Promise<FreesoundResultItem[]> {
   const trimmedQuery = query.trim();
   if (!trimmedQuery) return [];
 
   const url = new URL(FREESOUND_SEARCH_ENDPOINT);
   url.searchParams.set("query", trimmedQuery);
   url.searchParams.set("token", apiKey);
-  url.searchParams.set("fields", "id,name,tags,duration,license,previews");
+  url.searchParams.set("fields", "id,name,tags,duration,license,previews,type,original_filename,samplerate,bitdepth,filesize");
   url.searchParams.set("page_size", String(Math.min(maxResults * 3, 50)));
   url.searchParams.set("filter", 'license:("Creative Commons 0" OR "Attribution")');
 
@@ -48,13 +44,18 @@ export async function searchFreesoundDirect(
     .map((r): FreesoundResultItem => {
       const license = String(r.license ?? "");
       return {
-        id: r.id,
-        name: r.name,
+        id: Number(r.id),
+        name: String(r.name ?? "Untitled"),
         license,
         commerciallySafe: isCommerciallySafeDirect(license),
         durationSeconds: typeof r.duration === "number" ? r.duration : 0,
         previewUrl: r.previews?.["preview-hq-mp3"] ?? r.previews?.["preview-lq-mp3"] ?? "",
         freesoundUrl: `https://freesound.org/s/${r.id}/`,
+        originalFilename: typeof r.original_filename === "string" ? r.original_filename : undefined,
+        originalType: typeof r.type === "string" ? r.type : undefined,
+        sampleRate: typeof r.samplerate === "number" ? r.samplerate : undefined,
+        bitDepth: typeof r.bitdepth === "number" ? r.bitdepth : undefined,
+        fileSize: typeof r.filesize === "number" ? r.filesize : undefined,
         tags: Array.isArray(r.tags) ? r.tags.map((tag: unknown) => String(tag)) : [],
       };
     })
@@ -70,12 +71,7 @@ const STOP_WORDS = new Set([
 ]);
 
 function queryTokens(query: string): string[] {
-  return query
-    .toLowerCase()
-    .replace(/[^a-z0-9áéíóúüñ ]/gi, " ")
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 2 && !STOP_WORDS.has(token));
+  return query.toLowerCase().replace(/[^a-z0-9áéíóúüñ ]/gi, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && !STOP_WORDS.has(token));
 }
 
 function scoreFreesoundMatch(result: FreesoundResultItem, query: string): number {
@@ -83,41 +79,15 @@ function scoreFreesoundMatch(result: FreesoundResultItem, query: string): number
   if (tokens.length === 0) return 0;
   const haystack = `${result.name} ${(result.tags ?? []).join(" ")}`.toLowerCase();
   let score = 0;
-  for (const token of tokens) {
-    if (haystack.includes(token)) score += token.length >= 6 ? 3 : 2;
-  }
+  for (const token of tokens) if (haystack.includes(token)) score += token.length >= 6 ? 3 : 2;
   if (haystack.includes(query.toLowerCase())) score += 6;
   return score;
 }
 
-function coerceCertaintyDirect(value: unknown): Certainty {
-  return value === "observed" || value === "probable" || value === "possible" ? value : "possible";
-}
-
-function coerceCueDirect(value: any) {
-  return {
-    text: typeof value?.text === "string" ? value.text.trim() : "",
-    certainty: coerceCertaintyDirect(value?.certainty),
-    searchQuery: typeof value?.searchQuery === "string" ? value.searchQuery.trim() : "",
-  };
-}
-
-function coerceCueArrayDirect(value: any) {
-  return Array.isArray(value) ? value.map(coerceCueDirect).filter((c: any) => c.text.length > 0) : [];
-}
-
-function validateImageDataUrlDirect(image: string): string | null {
-  if (!DATA_URL_PATTERN.test(image)) {
-    return "La imagen no tiene un formato válido (se esperaba jpeg, png o webp).";
-  }
-  const base64 = image.slice(image.indexOf(",") + 1);
-  const approxBytes = (base64.length * 3) / 4;
-  if (approxBytes > MAX_IMAGE_BYTES) {
-    const mb = (approxBytes / (1024 * 1024)).toFixed(1);
-    return `La imagen es demasiado grande (~${mb}MB, máximo 20MB). Probá con una versión más liviana.`;
-  }
-  return null;
-}
+function coerceCertaintyDirect(value: unknown): Certainty { return value === "observed" || value === "probable" || value === "possible" ? value : "possible"; }
+function coerceCueDirect(value: any) { return { text: typeof value?.text === "string" ? value.text.trim() : "", certainty: coerceCertaintyDirect(value?.certainty), searchQuery: typeof value?.searchQuery === "string" ? value.searchQuery.trim() : "" }; }
+function coerceCueArrayDirect(value: any) { return Array.isArray(value) ? value.map(coerceCueDirect).filter((c: any) => c.text.length > 0) : []; }
+function validateImageDataUrlDirect(image: string): string | null { if (!DATA_URL_PATTERN.test(image)) return "La imagen no tiene un formato válido (se esperaba jpeg, png o webp)."; const base64 = image.slice(image.indexOf(",") + 1); const approxBytes = (base64.length * 3) / 4; if (approxBytes > MAX_IMAGE_BYTES) return `La imagen es demasiado grande (~${(approxBytes / (1024 * 1024)).toFixed(1)}MB, máximo 20MB). Probá con una versión más liviana.`; return null; }
 
 const ANALYSIS_PROMPT = `Sos diseñador de sonido para cine. Mirá el fotograma y prepará una base MUY CONCRETA para buscar sonidos en Freesound.
 
@@ -152,129 +122,17 @@ Todo el texto salvo searchQuery debe estar en español. Respondé SOLO JSON vál
 }`;
 
 export async function analyzeFrameDirect(image: string, apiKey: string): Promise<SceneAnalysis> {
-  const validationError = validateImageDataUrlDirect(image);
-  if (validationError) throw new Error(validationError);
-
-  const res = await fetch(GROQ_CHAT_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: VISION_MODEL,
-      messages: [
-        { role: "user", content: [{ type: "text", text: ANALYSIS_PROMPT }, { type: "image_url", image_url: { url: image } }] },
-      ],
-      temperature: 0.3,
-      max_completion_tokens: MAX_OUTPUT_TOKENS,
-      reasoning_effort: "none",
-      reasoning_format: "hidden",
-      response_format: { type: "json_object" },
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Groq vision request failed (${res.status}): ${body.slice(0, 300)}`);
-  }
-  const data: any = await res.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (typeof content !== "string") throw new Error("Groq no devolvió contenido de análisis");
-  let parsed: any;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error("El análisis no llegó en formato JSON válido");
-  }
-
-  const emptyCue = { text: "", certainty: "possible" as Certainty, searchQuery: "" };
-  const emptyArray: any[] = [];
-
-  return {
-    sceneDescription: typeof parsed?.sceneDescription === "string" ? parsed.sceneDescription.trim() : "",
-    place: coerceCueDirect(parsed?.place ?? emptyCue),
-    indoorOutdoor: coerceCueDirect(parsed?.indoorOutdoor ?? emptyCue),
-    timeOfDay: coerceCueDirect(parsed?.timeOfDay ?? emptyCue),
-    weather: coerceCueDirect(parsed?.weather ?? emptyCue),
-    materialsAndSurfaces: coerceCueArrayDirect(parsed?.materialsAndSurfaces ?? emptyArray),
-    humanPresence: coerceCueDirect(parsed?.humanPresence ?? emptyCue),
-    potentialSoundSources: coerceCueArrayDirect(parsed?.potentialSoundSources ?? emptyArray),
-    observedActions: coerceCueArrayDirect(parsed?.observedActions ?? emptyArray),
-    offScreenSources: coerceCueArrayDirect(parsed?.offScreenSources ?? emptyArray),
-    ambience: coerceCueArrayDirect(parsed?.ambience ?? emptyArray),
-    effects: coerceCueArrayDirect(parsed?.effects ?? emptyArray),
-    foley: coerceCueArrayDirect(parsed?.foley ?? emptyArray),
-    dialogue: [],
-    narrativeIdeas: [],
-  };
+  const validationError = validateImageDataUrlDirect(image); if (validationError) throw new Error(validationError);
+  const res = await fetch(GROQ_CHAT_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model: VISION_MODEL, messages: [{ role: "user", content: [{ type: "text", text: ANALYSIS_PROMPT }, { type: "image_url", image_url: { url: image } }] }], temperature: 0.3, max_completion_tokens: MAX_OUTPUT_TOKENS, reasoning_effort: "none", reasoning_format: "hidden", response_format: { type: "json_object" } }) });
+  if (!res.ok) { const body = await res.text().catch(() => ""); throw new Error(`Groq vision request failed (${res.status}): ${body.slice(0, 300)}`); }
+  const data: any = await res.json(); const content = data?.choices?.[0]?.message?.content; if (typeof content !== "string") throw new Error("Groq no devolvió contenido de análisis");
+  let parsed: any; try { parsed = JSON.parse(content); } catch { throw new Error("El análisis no llegó en formato JSON válido"); }
+  const emptyCue = { text: "", certainty: "possible" as Certainty, searchQuery: "" }; const emptyArray: any[] = [];
+  return { sceneDescription: typeof parsed?.sceneDescription === "string" ? parsed.sceneDescription.trim() : "", place: coerceCueDirect(parsed?.place ?? emptyCue), indoorOutdoor: coerceCueDirect(parsed?.indoorOutdoor ?? emptyCue), timeOfDay: coerceCueDirect(parsed?.timeOfDay ?? emptyCue), weather: coerceCueDirect(parsed?.weather ?? emptyCue), materialsAndSurfaces: coerceCueArrayDirect(parsed?.materialsAndSurfaces ?? emptyArray), humanPresence: coerceCueDirect(parsed?.humanPresence ?? emptyCue), potentialSoundSources: coerceCueArrayDirect(parsed?.potentialSoundSources ?? emptyArray), observedActions: coerceCueArrayDirect(parsed?.observedActions ?? emptyArray), offScreenSources: coerceCueArrayDirect(parsed?.offScreenSources ?? emptyArray), ambience: coerceCueArrayDirect(parsed?.ambience ?? emptyArray), effects: coerceCueArrayDirect(parsed?.effects ?? emptyArray), foley: coerceCueArrayDirect(parsed?.foley ?? emptyArray), dialogue: [], narrativeIdeas: [] };
 }
 
-// --- Groq proposal: compatibilidad con el motor anterior ---
-
-function coercePriorityDirect(value: unknown) {
-  return value === "primary" || value === "secondary" || value === "accent" ? value : "secondary";
-}
-
-const PROPOSAL_PROMPT = `Sos un diseñador de sonido profesional para cine y video. Proponé sonidos útiles para una escena a partir del análisis recibido.
-
-Para cada propuesta asigná certainty (observed/probable/possible), priority (primary/secondary/accent), una rationale breve, spatialPerspective cuando aporte algo y un searchQuery EN INGLÉS corto y útil para Freesound.
-
-Priorizá pertinencia sobre cantidad. Respondé SOLO JSON válido.`;
-
-function coerceIdeaDirect(value: any, category: SoundIdea["category"], index: number): SoundIdea | null {
-  const description = typeof value?.description === "string" ? value.description.trim() : "";
-  if (!description) return null;
-  const spatialPerspective = typeof value?.spatialPerspective === "string" ? value.spatialPerspective.trim() : "";
-  return {
-    id: `${category}-${index}-${crypto.randomUUID()}`,
-    category,
-    description,
-    rationale: typeof value?.rationale === "string" ? value.rationale.trim() : "",
-    certainty: coerceCertaintyDirect(value?.certainty),
-    priority: coercePriorityDirect(value?.priority),
-    spatialPerspective,
-    searchQuery: typeof value?.searchQuery === "string" ? value.searchQuery.trim() : "",
-    searching: false,
-    expanded: false,
-  };
-}
-
-function coerceProposalArrayDirect(value: any, category: SoundIdea["category"]): SoundIdea[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((item, index) => coerceIdeaDirect(item, category, index)).filter((x): x is SoundIdea => Boolean(x)).slice(0, MAX_PROPOSALS_PER_CATEGORY);
-}
-
-export async function generateSoundDesignProposalDirect(
-  analysis: SceneAnalysis,
-  apiKey: string
-): Promise<SoundDesignProposal> {
-  const res = await fetch(GROQ_CHAT_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: PROPOSAL_MODEL,
-      messages: [{ role: "user", content: `${PROPOSAL_PROMPT}\n${JSON.stringify(analysis)}` }],
-      temperature: 0.5,
-      max_completion_tokens: MAX_OUTPUT_TOKENS,
-      reasoning_effort: "none",
-      reasoning_format: "hidden",
-      response_format: { type: "json_object" },
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Groq proposal request failed (${res.status}): ${body.slice(0, 500)}`);
-  }
-  const data: any = await res.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (typeof content !== "string") throw new Error("Groq no devolvió contenido de propuesta sonora");
-  let parsed: any;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error("La propuesta sonora no llegó en formato JSON válido");
-  }
-  return {
-    ambientes: coerceProposalArrayDirect(parsed?.ambientes, "ambientes"),
-    efectos: coerceProposalArrayDirect(parsed?.efectos, "efectos"),
-    foley: coerceProposalArrayDirect(parsed?.foley, "foley"),
-    dialogos: coerceProposalArrayDirect(parsed?.dialogos, "dialogos"),
-  };
-}
+function coercePriorityDirect(value: unknown) { return value === "primary" || value === "secondary" || value === "accent" ? value : "secondary"; }
+const PROPOSAL_PROMPT = `Sos un diseñador de sonido profesional para cine y video. Proponé sonidos útiles para una escena a partir del análisis recibido.\n\nPara cada propuesta asigná certainty (observed/probable/possible), priority (primary/secondary/accent), una rationale breve, spatialPerspective cuando aporte algo y un searchQuery EN INGLÉS corto y útil para Freesound.\n\nPriorizá pertinencia sobre cantidad. Respondé SOLO JSON válido.`;
+function coerceIdeaDirect(value: any, category: SoundIdea["category"], index: number): SoundIdea | null { const description = typeof value?.description === "string" ? value.description.trim() : ""; if (!description) return null; const spatialPerspective = typeof value?.spatialPerspective === "string" ? value.spatialPerspective.trim() : ""; return { id: `${category}-${index}-${crypto.randomUUID()}`, category, description, rationale: typeof value?.rationale === "string" ? value.rationale.trim() : "", certainty: coerceCertaintyDirect(value?.certainty), priority: coercePriorityDirect(value?.priority), spatialPerspective, searchQuery: typeof value?.searchQuery === "string" ? value.searchQuery.trim() : "", searching: false, expanded: false }; }
+function coerceProposalArrayDirect(value: any, category: SoundIdea["category"]): SoundIdea[] { if (!Array.isArray(value)) return []; return value.map((item, index) => coerceIdeaDirect(item, category, index)).filter((x): x is SoundIdea => Boolean(x)).slice(0, MAX_PROPOSALS_PER_CATEGORY); }
+export async function generateSoundDesignProposalDirect(analysis: SceneAnalysis, apiKey: string): Promise<SoundDesignProposal> { const res = await fetch(GROQ_CHAT_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model: PROPOSAL_MODEL, messages: [{ role: "user", content: `${PROPOSAL_PROMPT}\n${JSON.stringify(analysis)}` }], temperature: 0.5, max_completion_tokens: MAX_OUTPUT_TOKENS, reasoning_effort: "none", reasoning_format: "hidden", response_format: { type: "json_object" } }) }); if (!res.ok) { const body = await res.text().catch(() => ""); throw new Error(`Groq proposal request failed (${res.status}): ${body.slice(0, 500)}`); } const data: any = await res.json(); const content = data?.choices?.[0]?.message?.content; if (typeof content !== "string") throw new Error("Groq no devolvió contenido de propuesta sonora"); let parsed: any; try { parsed = JSON.parse(content); } catch { throw new Error("La propuesta sonora no llegó en formato JSON válido"); } return { ambientes: coerceProposalArrayDirect(parsed?.ambientes, "ambientes"), efectos: coerceProposalArrayDirect(parsed?.efectos, "efectos"), foley: coerceProposalArrayDirect(parsed?.foley, "foley"), dialogos: coerceProposalArrayDirect(parsed?.dialogos, "dialogos") }; }
