@@ -1,8 +1,5 @@
 export type SoundtrackElement = "ambientes" | "efectos" | "foley" | "dialogos";
 
-// La interfaz pública de AUDIAR trabaja con tres familias sonoras.
-// "dialogos" se mantiene en los tipos internos para compatibilidad con
-// el motor de propuestas anterior, pero no se muestra ni se genera como capa.
 export const ELEMENTS: { id: SoundtrackElement; label: string; hint: string }[] = [
   { id: "ambientes", label: "Ambientes", hint: "hasta 3 capas" },
   { id: "efectos", label: "SFX", hint: "hasta 3 capas" },
@@ -58,7 +55,6 @@ export interface SceneAnalysis {
 }
 
 export type ProposalCategory = SoundtrackElement;
-export type Priority = "primary" | "secondary" | "accent";
 
 export interface FreesoundResultItem {
   id: number;
@@ -75,26 +71,4 @@ export interface FreesoundResultItem {
   fileSize?: number;
   tags?: string[];
   added?: boolean;
-}
-
-export interface SoundIdea {
-  id: string;
-  category: ProposalCategory;
-  description: string;
-  rationale: string;
-  certainty: Certainty;
-  priority: Priority;
-  spatialPerspective?: string;
-  searchQuery: string;
-  searching?: boolean;
-  searchError?: string;
-  searchResults?: FreesoundResultItem[];
-  expanded?: boolean;
-}
-
-export interface SoundDesignProposal {
-  ambientes: SoundIdea[];
-  efectos: SoundIdea[];
-  foley: SoundIdea[];
-  dialogos: SoundIdea[];
 }
