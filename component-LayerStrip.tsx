@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FreesoundResultItem, Layer, SoundtrackElement } from "./types";
-import { searchFreesoundDirect } from "./direct-providers";
+import { searchFreesoundDiverse } from "./scene-freesound";
 import { layerToSendableSound, sendToReaperBridge } from "./reaper-bridge";
 import type { ApiKeys } from "./api-keys";
 
@@ -23,6 +23,11 @@ function dbToLinear(db: number): number {
   return Math.pow(10, db / 20);
 }
 
+function extractFreesoundId(id: string): number | null {
+  const match = id.match(/(?:^|-)freesound-(?:ambientes-|efectos-|foley-)?(\d+)(?:-|$)/);
+  return match ? Number(match[1]) : null;
+}
+
 export function LayerStrip({
   layer,
   element,
@@ -40,11 +45,16 @@ export function LayerStrip({
   const [searchingAlternatives, setSearchingAlternatives] = useState(false);
   const [alternativeError, setAlternativeError] = useState<string | null>(null);
   const [selectedAlternatives, setSelectedAlternatives] = useState<Set<number>>(new Set());
+  const alternativePageRef = useRef(0);
+  const shownAlternativeIdsRef = useRef<Set<number>>(new Set());
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const contextRef = useRef<AudioContext | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const pannerRef = useRef<StereoPannerNode | null>(null);
 
+  // Crear una sola cadena Web Audio por elemento <audio>.
+  // No recrearla cuando cambia el src evita InvalidStateError al reemplazar/sumar sonidos.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -78,14 +88,14 @@ export function LayerStrip({
         gain.disconnect();
         panner.disconnect();
       } catch {
-        // La cadena puede haber sido desconectada al desmontar.
+        // La cadena puede haberse desconectado durante el desmontaje.
       }
       void context.close();
       contextRef.current = null;
       gainRef.current = null;
       pannerRef.current = null;
     };
-  }, [layer.audioUrl]);
+  }, []);
 
   useEffect(() => {
     const gain = gainRef.current;
@@ -103,13 +113,9 @@ export function LayerStrip({
   async function handleSendToReaper() {
     setSendState("connecting");
     const result = await sendToReaperBridge([layerToSendableSound(layer, element)]);
-    if (result.ok) {
-      setSendState("sent");
-    } else if (result.notFound) {
-      setSendState("not-found");
-    } else {
-      setSendState("error");
-    }
+    if (result.ok) setSendState("sent");
+    else if (result.notFound) setSendState("not-found");
+    else setSendState("error");
   }
 
   async function handleAlternatives() {
@@ -124,22 +130,46 @@ export function LayerStrip({
       setAlternativeError("Configurá la API key de Freesound.");
       return;
     }
+
     setSearchingAlternatives(true);
     setAlternativeError(null);
     try {
       const query = layer.searchQuery?.trim() || layer.name;
-      const results = await searchFreesoundDirect(query, apiKeys.freesound, 6);
-      setAlternatives(results.filter((result) => result.previewUrl && result.id !== extractFreesoundId(layer.id)));
+      alternativePageRef.current += 1;
+      const currentLayerId = extractFreesoundId(layer.id);
+      if (currentLayerId !== null) shownAlternativeIdsRef.current.add(currentLayerId);
+
+      let results = await searchFreesoundDiverse(
+        query,
+        apiKeys.freesound,
+        alternativePageRef.current,
+        6,
+        shownAlternativeIdsRef.current,
+      );
+
+      // Si una página no alcanza para llenar opciones nuevas, probar una página posterior.
+      let attempts = 0;
+      while (results.length < 3 && attempts < 2) {
+        alternativePageRef.current += 1;
+        attempts += 1;
+        const more = await searchFreesoundDiverse(
+          query,
+          apiKeys.freesound,
+          alternativePageRef.current,
+          6,
+          new Set([...shownAlternativeIdsRef.current, ...results.map((item) => item.id)]),
+        );
+        results = [...results, ...more];
+      }
+
+      results.forEach((result) => shownAlternativeIdsRef.current.add(result.id));
+      setAlternatives(results.slice(0, 6));
+      setSelectedAlternatives(new Set());
     } catch (e: any) {
-      setAlternativeError(e.message ?? "no se pudieron buscar alternativas");
+      setAlternativeError(e.message ?? "no se pudieron buscar otros sonidos");
     } finally {
       setSearchingAlternatives(false);
     }
-  }
-
-  function extractFreesoundId(id: string): number | null {
-    const match = id.match(/(?:^|-)freesound-(?:ambientes-|efectos-|foley-)?(\d+)(?:-|$)/);
-    return match ? Number(match[1]) : null;
   }
 
   function toggleAlternative(id: number) {
@@ -155,23 +185,9 @@ export function LayerStrip({
     if (!alternatives) return;
     const selected = alternatives.filter((result) => selectedAlternatives.has(result.id));
     if (selected.length === 0) return;
+
     const addedIds = onAddResults(selected, layer.searchQuery?.trim() || layer.name);
     onSelectIds(addedIds);
-    setAlternatives(null);
-    setSelectedAlternatives(new Set());
-  }
-
-  function replaceWithAlternative(result: FreesoundResultItem) {
-    onChange({
-      name: result.name,
-      license: result.license,
-      commerciallySafe: result.commerciallySafe,
-      durationSeconds: result.durationSeconds,
-      audioUrl: result.previewUrl,
-      freesoundUrl: result.freesoundUrl,
-      tags: result.tags,
-      searchQuery: layer.searchQuery,
-    });
     setAlternatives(null);
     setSelectedAlternatives(new Set());
   }
@@ -207,68 +223,38 @@ export function LayerStrip({
         </button>
       </div>
 
-      <div className="layer-strip__name" title={layer.name}>
-        {layer.name}
-      </div>
+      <div className="layer-strip__name" title={layer.name}>{layer.name}</div>
 
-      <span
-        className={`layer-strip__badge ${layer.commerciallySafe ? "is-safe" : "is-unsafe"}`}
-        title={layer.license}
-      >
+      <span className={`layer-strip__badge ${layer.commerciallySafe ? "is-safe" : "is-unsafe"}`} title={layer.license}>
         {layer.commerciallySafe ? "uso comercial OK" : "solo no comercial"}
       </span>
 
       <div className="layer-strip__controls" aria-label={`Controles de ${layer.name}`}>
         <label className="layer-strip__row">
           <span>vol</span>
-          <input
-            type="range"
-            min={-60}
-            max={6}
-            step={0.5}
-            value={layer.gainDb}
-            onChange={(e) => onChange({ gainDb: Number(e.target.value) })}
-          />
+          <input type="range" min={-60} max={6} step={0.5} value={layer.gainDb} onChange={(e) => onChange({ gainDb: Number(e.target.value) })} />
           <span className="layer-strip__value">{layer.gainDb.toFixed(1)}dB</span>
         </label>
-
         <label className="layer-strip__row">
           <span>pan</span>
-          <input
-            type="range"
-            min={-1}
-            max={1}
-            step={0.1}
-            value={layer.pan}
-            onChange={(e) => onChange({ pan: Number(e.target.value) })}
-          />
-          <span className="layer-strip__value">
-            {layer.pan === 0 ? "C" : layer.pan < 0 ? `${Math.abs(layer.pan * 100).toFixed(0)}L` : `${(layer.pan * 100).toFixed(0)}R`}
-          </span>
+          <input type="range" min={-1} max={1} step={0.1} value={layer.pan} onChange={(e) => onChange({ pan: Number(e.target.value) })} />
+          <span className="layer-strip__value">{layer.pan === 0 ? "C" : layer.pan < 0 ? `${Math.abs(layer.pan * 100).toFixed(0)}L` : `${(layer.pan * 100).toFixed(0)}R`}</span>
         </label>
-
         <div className="layer-strip__row layer-strip__mute-solo">
-          <button
-            className={layer.muted ? "is-active" : ""}
-            onClick={() => onChange({ muted: !layer.muted })}
-            aria-pressed={layer.muted}
-          >
-            M
-          </button>
-          <button
-            className={layer.solo ? "is-active" : ""}
-            onClick={() => onChange({ solo: !layer.solo })}
-            aria-pressed={layer.solo}
-          >
-            S
-          </button>
+          <button className={layer.muted ? "is-active" : ""} onClick={() => onChange({ muted: !layer.muted })} aria-pressed={layer.muted}>M</button>
+          <button className={layer.solo ? "is-active" : ""} onClick={() => onChange({ solo: !layer.solo })} aria-pressed={layer.solo}>S</button>
         </div>
       </div>
 
       <div className="layer-strip__alternatives">
-        <button className="layer-strip__alternatives-btn" onClick={handleAlternatives} disabled={searchingAlternatives}>
-          {searchingAlternatives ? "Buscando..." : alternatives ? "ocultar otros" : "otros sonidos"}
-        </button>
+        <div className="layer-strip__alternatives-head">
+          <button className="layer-strip__alternatives-btn" onClick={handleAlternatives} disabled={searchingAlternatives}>
+            {searchingAlternatives ? "Buscando..." : alternatives ? "ocultar otros" : "otros sonidos"}
+          </button>
+          {alternatives && (
+            <button className="layer-strip__alternatives-close" onClick={handleAlternatives} aria-label="Cerrar otros sonidos">×</button>
+          )}
+        </div>
         {alternativeError && <p className="layer-strip__alternative-error">{alternativeError}</p>}
         {alternatives && (
           <div className="layer-strip__alternative-list">
@@ -277,15 +263,9 @@ export function LayerStrip({
               const checked = selectedAlternatives.has(result.id);
               return (
                 <div key={result.id} className={`layer-strip__alternative ${checked ? "is-selected" : ""}`}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleAlternative(result.id)}
-                    aria-label={`Seleccionar ${result.name}`}
-                  />
+                  <input type="checkbox" checked={checked} onChange={() => toggleAlternative(result.id)} aria-label={`Seleccionar ${result.name}`} />
                   <audio src={result.previewUrl} controls loop preload="none" />
                   <span title={result.name}>{result.name}</span>
-                  <button onClick={() => replaceWithAlternative(result)}>reemplazar</button>
                 </div>
               );
             })}
@@ -298,11 +278,7 @@ export function LayerStrip({
         )}
       </div>
 
-      <button
-        className={`layer-strip__reaper-btn reaper-state-${sendState}`}
-        onClick={handleSendToReaper}
-        disabled={sendState === "connecting"}
-      >
+      <button className={`layer-strip__reaper-btn reaper-state-${sendState}`} onClick={handleSendToReaper} disabled={sendState === "connecting"}>
         {sendLabel[sendState]}
       </button>
     </div>
