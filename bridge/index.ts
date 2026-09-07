@@ -3,11 +3,14 @@
 // También gestiona OAuth2 de Freesound y descarga el archivo original cuando está autorizado.
 
 import { createServer } from "node:http";
+import { createWriteStream } from "node:fs";
 import { mkdir, writeFile, readFile, rename, unlink, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { randomBytes } from "node:crypto";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 
 const PORT = 8765;
 const FREESOUND_API = "https://freesound.org/apiv2";
@@ -43,6 +46,11 @@ interface IncomingSound {
   pan?: number;
   license?: string;
   source?: string;
+  originalFilename?: string;
+  originalType?: string;
+  sampleRate?: number;
+  bitDepth?: number;
+  fileSize?: number;
 }
 
 interface DownloadedSound {
@@ -196,35 +204,41 @@ async function getValidAccessToken(): Promise<string | null> {
   return store.accessToken ?? null;
 }
 
+async function writeResponseToFile(res: Response, localPath: string): Promise<void> {
+  if (!res.body) throw new Error("La respuesta no contiene cuerpo de descarga.");
+  const tmpPath = `${localPath}.part`;
+  try {
+    await pipeline(Readable.fromWeb(res.body as any), createWriteStream(tmpPath));
+    await rename(tmpPath, localPath);
+  } catch (error) {
+    await unlink(tmpPath).catch(() => undefined);
+    throw error;
+  }
+}
+
 async function downloadOriginalFromFreesound(sound: IncomingSound): Promise<string | null> {
   if (sound.source !== "freesound" || sound.freesoundId == null) return null;
   const accessToken = await getValidAccessToken();
   if (!accessToken) return null;
 
-  const infoRes = await fetch(`${FREESOUND_API}/sounds/${sound.freesoundId}/`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!infoRes.ok) return null;
-  const info: any = await infoRes.json().catch(() => ({}));
-  const extension = extensionFromOriginal(info?.type, info?.original_filename);
+  const extension = extensionFromOriginal(sound.originalType, sound.originalFilename);
   const filename = `${safeBaseName(sound.id)}-original${extension}`;
   const localPath = path.join(CACHE_DIR, filename);
 
-  if (!existsSync(localPath)) {
-    let downloadRes = await fetch(`${FREESOUND_API}/sounds/${sound.freesoundId}/download/`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+  if (existsSync(localPath)) return localPath;
+
+  let downloadRes = await fetch(`${FREESOUND_API}/sounds/${sound.freesoundId}/download/`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (downloadRes.status === 401) {
+    const refreshed = await refreshAccessToken(await loadOAuthStore());
+    if (!refreshed.accessToken) return null;
+    downloadRes = await fetch(`${FREESOUND_API}/sounds/${sound.freesoundId}/download/`, {
+      headers: { Authorization: `Bearer ${refreshed.accessToken}` },
     });
-    if (downloadRes.status === 401) {
-      const refreshed = await refreshAccessToken(await loadOAuthStore());
-      if (!refreshed.accessToken) return null;
-      downloadRes = await fetch(`${FREESOUND_API}/sounds/${sound.freesoundId}/download/`, {
-        headers: { Authorization: `Bearer ${refreshed.accessToken}` },
-      });
-    }
-    if (!downloadRes.ok) return null;
-    const buffer = Buffer.from(await downloadRes.arrayBuffer());
-    await writeFile(localPath, buffer);
   }
+  if (!downloadRes.ok) return null;
+  await writeResponseToFile(downloadRes, localPath);
   return localPath;
 }
 
@@ -233,8 +247,7 @@ async function downloadPreview(sound: IncomingSound): Promise<string> {
   if (existsSync(localPath)) return localPath;
   const res = await fetch(sound.audioUrl);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const buffer = Buffer.from(await res.arrayBuffer());
-  await writeFile(localPath, buffer);
+  await writeResponseToFile(res, localPath);
   return localPath;
 }
 
