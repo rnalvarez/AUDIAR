@@ -172,8 +172,10 @@ if errorlevel 1 ( call :fail 51 "No se pudo copiar el ReaScript a la carpeta de 
 ) > "%LAUNCHER%"
 if not exist "%LAUNCHER%" ( call :fail 60 "No se pudo crear el lanzador del Bridge." & exit /b 60 )
 
+rem Los archivos .bat no permiten definir un icono propio. El acceso directo
+rem creado por este instalador usa el icono de audio/volumen de Windows.
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ws=New-Object -ComObject WScript.Shell; $sc=$ws.CreateShortcut([Environment]::GetFolderPath('Desktop')+'\AUDIAR REAPER Bridge.lnk'); $sc.TargetPath='%LAUNCHER%'; $sc.WorkingDirectory='%INSTALL_DIR%'; $sc.IconLocation='%SystemRoot%\System32\SHELL32.dll,137'; $sc.Save()"
+  "$ws=New-Object -ComObject WScript.Shell; $sc=$ws.CreateShortcut([Environment]::GetFolderPath('Desktop')+'\AUDIAR REAPER Bridge.lnk'); $sc.TargetPath='%LAUNCHER%'; $sc.WorkingDirectory='%INSTALL_DIR%'; $sc.IconLocation='%SystemRoot%\System32\SndVol.exe,0'; $sc.Save()"
 if errorlevel 1 (
   echo AVISO: no se pudo crear el acceso directo. El Bridge igualmente quedo instalado.
   >> "%LOG%" echo [AUDIAR] Aviso: no se pudo crear acceso directo.
