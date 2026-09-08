@@ -1,0 +1,149 @@
+.download-queue {
+  margin: 0 0 14px;
+  border: 1px solid var(--border, #253238);
+  border-radius: 10px;
+  background: var(--panel, #10181c);
+  overflow: hidden;
+}
+
+.download-queue summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.download-queue summary::-webkit-details-marker { display: none; }
+
+.download-queue__header > details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.download-queue__title {
+  font-weight: 600;
+}
+
+.download-queue__summary-stats,
+.download-batch__state,
+.download-batch__folder,
+.download-file__status,
+.download-file__size,
+.download-file__speed {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.download-queue__body {
+  padding: 0 10px 10px;
+}
+
+.download-batch {
+  margin-top: 8px;
+  border: 1px solid var(--border, #253238);
+  border-radius: 8px;
+  background: var(--bg, #0c1215);
+  overflow: hidden;
+}
+
+.download-batch__summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+}
+
+.download-batch__body {
+  padding: 0 11px 11px;
+}
+
+.download-batch__meter,
+.download-file__bar {
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.download-batch__meter span,
+.download-file__bar span {
+  display: block;
+  height: 100%;
+  background: currentColor;
+  opacity: 0.9;
+  transition: width 0.15s linear;
+}
+
+.download-batch__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 0 10px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.download-batch__error {
+  margin-bottom: 8px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.download-file {
+  display: grid;
+  grid-template-columns: 8px minmax(180px, 1fr) 90px 110px 80px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.download-file__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
+
+.download-file__dot--downloading { opacity: 1; }
+.download-file__dot--done { opacity: 0.8; }
+.download-file__dot--error { opacity: 1; }
+
+.download-file__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.download-file__bar { margin-top: 4px; height: 3px; }
+
+.download-queue__clear {
+  margin-top: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border, #253238);
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.download-queue__clear:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+@media (max-width: 900px) {
+  .download-file {
+    grid-template-columns: 8px minmax(0, 1fr) 72px;
+  }
+  .download-file__size,
+  .download-file__speed { display: none; }
+}
