@@ -75,10 +75,21 @@ export default function App() {
       if (batch.progress.items.filter((item) => item.id !== itemId).every((item) => item.state === "cancelled")) { batchCompletionRef.current.delete(batchId); downloadControllerRef.current.delete(batchId); }
     }
   }
+  async function queueSoundsToReaper(sounds: SendableSound[], groupName: string, groupSceneName: string): Promise<string> {
+    let resolveCompletion!: () => void;
+    let rejectCompletion!: (reason?: unknown) => void;
+    const completion = new Promise<void>((resolve, reject) => { resolveCompletion = resolve; rejectCompletion = reject; });
+    const batchId = await enqueueDownloadBatch(sounds, async () => {
+      const result = await sendToReaperBridge(sounds, groupSceneName, groupName);
+      if (result.ok) resolveCompletion();
+      else rejectCompletion(new Error(result.error ?? "No se pudo enviar a REAPER."));
+    });
+    await completion;
+    return batchId;
+  }
   async function sendSingleSoundToReaper(sound: SendableSound) {
     const group = await ensureSceneGroup();
-    const result = await sendToReaperBridge([sound], sceneName, group.groupName);
-    if (!result.ok) throw new Error(result.error ?? "No se pudo enviar a REAPER.");
+    await queueSoundsToReaper([sound], group.groupName, sceneName);
   }
   async function importBatchToReaper(batchId: string) {
     const batch = downloadQueue.find((candidate) => candidate.id === batchId);
@@ -102,9 +113,8 @@ export default function App() {
     })();
   }, [downloadQueue]);
   async function queueSelectedSoundsForReaper(sounds: SendableSound[]): Promise<string> {
-    const group = await ensureSceneGroup(); let resolveCompletion!: () => void; let rejectCompletion!: (reason?: unknown) => void; const completion = new Promise<void>((resolve, reject) => { resolveCompletion = resolve; rejectCompletion = reject; });
-    const batchId = await enqueueDownloadBatch(sounds, async () => { const result = await sendToReaperBridge(sounds, sceneName, group.groupName); if (result.ok) resolveCompletion(); else rejectCompletion(new Error(result.error ?? "No se pudo enviar a REAPER.")); });
-    return completion.then(() => batchId);
+    const group = await ensureSceneGroup();
+    return queueSoundsToReaper(sounds, group.groupName, sceneName);
   }
   const selectedLayers = ELEMENTS.flatMap(({ id }) => layers[id].filter((layer) => selectedIds.has(layer.id)).map((layer) => ({ layer, element: id })));
   const globalSoloActive = ELEMENTS.some(({ id }) => layers[id].some((layer) => layer.solo));
