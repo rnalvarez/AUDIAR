@@ -142,11 +142,12 @@ export default function App() {
         cancelled: batch.progress.total,
         active: 0,
         remainingBytes: 0,
-        items: batch.progress.items.map((item) => item.state === "done" ? item : { ...item, state: "cancelled", speedBytesPerSecond: 0 }),
+        items: batch.progress.items.map((item) => item.state === "done" ? item : { ...item, state: "cancelled" as const, speedBytesPerSecond: 0 }),
       },
       error: "Grupo cancelado por el usuario.",
     }));
     batchCompletionRef.current.delete(id);
+    downloadControllerRef.current.delete(id);
   }
 
   function cancelDownloadBatch(id: string) {
@@ -164,7 +165,7 @@ export default function App() {
     controller.cancelItem(itemId);
     if (batch.state === "queued") {
       updateBatch(batchId, (current) => {
-        const items = current.progress.items.map((item) => item.id === itemId ? { ...item, state: "cancelled", speedBytesPerSecond: 0, error: undefined } : item);
+        const items = current.progress.items.map((item) => item.id === itemId ? { ...item, state: "cancelled" as const, speedBytesPerSecond: 0, error: undefined } : item);
         const allCancelled = items.every((item) => item.state === "cancelled");
         return {
           ...current,
@@ -173,7 +174,10 @@ export default function App() {
           progress: { ...current.progress, current: allCancelled ? current.progress.total : current.progress.current, cancelled: items.filter((item) => item.state === "cancelled").length, items },
         };
       });
-      if (batch.progress.items.filter((item) => item.id !== itemId).every((item) => item.state === "cancelled")) batchCompletionRef.current.delete(batchId);
+      if (batch.progress.items.filter((item) => item.id !== itemId).every((item) => item.state === "cancelled")) {
+        batchCompletionRef.current.delete(batchId);
+        downloadControllerRef.current.delete(batchId);
+      }
     }
   }
 
