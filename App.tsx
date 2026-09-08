@@ -17,13 +17,12 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [downloadQueue, setDownloadQueue] = useState<DownloadBatch[]>([]);
   const [sceneName, setSceneName] = useState("");
-  const [sceneGroupName, setSceneGroupName] = useState<string | null>(null);
   const sceneGroupRef = useRef<string | null>(null);
   const activeBatchRef = useRef<string | null>(null);
 
   function handleSaveApiKeys(keys: ApiKeys) { setApiKeys(keys); saveApiKeys(keys); }
   function replaceLayers(next: Partial<LayersByElement>) { setLayers((prev) => ({ ...prev, ...next })); setSelectedIds(new Set()); }
-  function handleNewScene() { sceneGroupRef.current = null; setSceneGroupName(null); }
+  function handleNewScene() { sceneGroupRef.current = null; }
   function toggleSelect(id: string) { setSelectedIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
   function selectIds(ids: string[]) { if (!ids.length) return; setSelectedIds((prev) => { const next = new Set(prev); ids.forEach((id) => next.add(id)); return next; }); }
   function setCategorySelection(elementId: SoundtrackElement, selectAll: boolean) { const ids = layers[elementId].map((layer) => layer.id); setSelectedIds((prev) => { const next = new Set(prev); ids.forEach((id) => (selectAll ? next.add(id) : next.delete(id))); return next; }); }
@@ -33,7 +32,6 @@ export default function App() {
     if (sceneGroupRef.current) return { rootName: root.name, groupName: sceneGroupRef.current };
     const group = await createSceneGroupDirectory(null, sceneName);
     sceneGroupRef.current = group.name;
-    setSceneGroupName(group.name);
     return { rootName: root.name, groupName: group.name };
   }
 
