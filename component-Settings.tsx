@@ -51,28 +51,29 @@ export function Settings({ apiKeys, onSave }: Props) {
     let timeoutId: number | null = null;
     try {
       const clientId = freesoundClientId.trim();
-      const clientSecret = freesoundClientSecret.trim();
+      // Freesound muestra la clave de la credencial como “Client secret/Api key”.
+      // Por comodidad, usamos la API key ingresada arriba como Client Secret OAuth
+      // cuando el campo específico de Secret se deja vacío.
+      const apiKey = freesound.trim();
+      const clientSecret = freesoundClientSecret.trim() || apiKey;
+
       if (!clientId) throw new Error("Cargá el Client ID de Freesound.");
-      if (!clientSecret && !oauth.configured) {
-        throw new Error("En la primera conexión también hace falta el Client Secret.");
-      }
+      if (!clientSecret) throw new Error("Cargá la clave de Freesound: se usa como API key y como Client Secret OAuth.");
 
       onSave({
-        freesound: freesound.trim() || undefined,
+        freesound: apiKey || undefined,
         freesoundClientId: clientId,
         groq: groq.trim() || undefined,
       });
 
-      if (clientSecret || !oauth.configured) {
-        const configuredResponse = await fetch(`${BRIDGE_URL}/oauth/configure`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientId, clientSecret: clientSecret || undefined }),
-        });
-        const configuredData = await configuredResponse.json().catch(() => ({}));
-        if (!configuredResponse.ok) throw new Error(configuredData.error ?? "No se pudieron guardar las credenciales OAuth en el bridge.");
-        setOauth((current) => ({ ...current, configured: true }));
-      }
+      const configuredResponse = await fetch(`${BRIDGE_URL}/oauth/configure`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, clientSecret }),
+      });
+      const configuredData = await configuredResponse.json().catch(() => ({}));
+      if (!configuredResponse.ok) throw new Error(configuredData.error ?? "No se pudieron guardar las credenciales OAuth en el bridge.");
+      setOauth((current) => ({ ...current, configured: true, connected: false }));
 
       const startResponse = await fetch(`${BRIDGE_URL}/oauth/start`);
       const startData = await startResponse.json().catch(() => ({}));
@@ -160,8 +161,8 @@ export function Settings({ apiKeys, onSave }: Props) {
           </p>
 
           <label className="settings__field">
-            <span>Freesound API key</span>
-            <input type="password" value={freesound} onChange={(e) => setFreesound(e.target.value)} placeholder="pegar acá" autoComplete="off" />
+            <span>Freesound API key / Client Secret</span>
+            <input type="password" value={freesound} onChange={(e) => setFreesound(e.target.value)} placeholder="clave de Freesound" autoComplete="off" />
           </label>
 
           <div className="settings__oauth">
@@ -171,8 +172,8 @@ export function Settings({ apiKeys, onSave }: Props) {
               <input type="text" value={freesoundClientId} onChange={(e) => setFreesoundClientId(e.target.value)} placeholder="Client ID" autoComplete="off" />
             </label>
             <label className="settings__field">
-              <span>Freesound Client Secret</span>
-              <input type="password" value={freesoundClientSecret} onChange={(e) => setFreesoundClientSecret(e.target.value)} placeholder={oauth.configured ? "guardado en el bridge local" : "solo para la primera conexión"} autoComplete="off" />
+              <span>Freesound Client Secret (opcional)</span>
+              <input type="password" value={freesoundClientSecret} onChange={(e) => setFreesoundClientSecret(e.target.value)} placeholder="usa la clave de arriba si lo dejás vacío" autoComplete="off" />
             </label>
             <div className="settings__actions">
               <button className="settings__save-btn" onClick={connectFreesound} disabled={oauthBusy}>
