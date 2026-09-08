@@ -3,6 +3,7 @@ import type { FreesoundResultItem, Layer, SoundtrackElement } from "./types";
 import type { ApiKeys } from "./api-keys";
 import { searchFreesoundDiverse } from "./scene-freesound";
 import { LayerStrip } from "./component-LayerStrip";
+import type { SendableSound } from "./reaper-bridge";
 
 interface Props {
   elementId: SoundtrackElement;
@@ -16,6 +17,7 @@ interface Props {
   onSelectIds: (ids: string[]) => void;
   onSetCategorySelection: (selectAll: boolean) => void;
   globalSoloActive: boolean;
+  onSendToReaper: (sound: SendableSound) => Promise<void>;
 }
 
 export function SoundtrackPanel({
@@ -30,6 +32,7 @@ export function SoundtrackPanel({
   onSelectIds,
   onSetCategorySelection,
   globalSoloActive,
+  onSendToReaper,
 }: Props) {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -116,28 +119,15 @@ export function SoundtrackPanel({
             <h2 id={`panel-${elementId}`}>{label}</h2>
             <span className="panel__hint">{hint}</span>
           </div>
-          <button
-            className={`panel__select-all ${allSelected ? "is-active" : ""}`}
-            type="button"
-            onClick={() => onSetCategorySelection(!allSelected)}
-            disabled={layers.length === 0}
-            aria-pressed={allSelected}
-          >
+          <button className={`panel__select-all ${allSelected ? "is-active" : ""}`} type="button" onClick={() => onSetCategorySelection(!allSelected)} disabled={layers.length === 0} aria-pressed={allSelected}>
             {allSelected ? "deseleccionar todos" : "seleccionar todos"}
           </button>
         </div>
       </header>
 
       <div className="panel__search">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          placeholder="describí el sonido..."
-        />
-        <button onClick={handleSearch} disabled={loading}>
-          {loading ? "..." : "buscar"}
-        </button>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSearch()} placeholder="describí el sonido..." />
+        <button onClick={handleSearch} disabled={loading}>{loading ? "..." : "buscar"}</button>
       </div>
 
       {error && <p className="panel__error">{error}</p>}
@@ -157,6 +147,7 @@ export function SoundtrackPanel({
             onAddResults={addResults}
             onSelectIds={onSelectIds}
             apiKeys={apiKeys}
+            onSendToReaper={onSendToReaper}
           />
         ))}
       </div>
