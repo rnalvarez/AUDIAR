@@ -133,19 +133,7 @@ export default function App() {
   }
 
   function markQueuedBatchCancelled(id: string) {
-    updateBatch(id, (batch) => ({
-      ...batch,
-      state: "cancelled",
-      progress: {
-        ...batch.progress,
-        current: batch.progress.total,
-        cancelled: batch.progress.total,
-        active: 0,
-        remainingBytes: 0,
-        items: batch.progress.items.map((item) => item.state === "done" ? item : { ...item, state: "cancelled" as const, speedBytesPerSecond: 0 }),
-      },
-      error: "Grupo cancelado por el usuario.",
-    }));
+    updateBatch(id, (batch) => ({ ...batch, state: "cancelled", progress: { ...batch.progress, current: batch.progress.total, cancelled: batch.progress.total, active: 0, remainingBytes: 0, items: batch.progress.items.map((item) => item.state === "done" ? item : { ...item, state: "cancelled" as const, speedBytesPerSecond: 0 }) }, error: "Grupo cancelado por el usuario." }));
     batchCompletionRef.current.delete(id);
     downloadControllerRef.current.delete(id);
   }
@@ -167,17 +155,40 @@ export default function App() {
       updateBatch(batchId, (current) => {
         const items = current.progress.items.map((item) => item.id === itemId ? { ...item, state: "cancelled" as const, speedBytesPerSecond: 0, error: undefined } : item);
         const allCancelled = items.every((item) => item.state === "cancelled");
-        return {
-          ...current,
-          state: allCancelled ? "cancelled" : current.state,
-          error: allCancelled ? "Grupo cancelado porque todos sus archivos fueron cancelados." : current.error,
-          progress: { ...current.progress, current: allCancelled ? current.progress.total : current.progress.current, cancelled: items.filter((item) => item.state === "cancelled").length, items },
-        };
+        return { ...current, state: allCancelled ? "cancelled" : current.state, error: allCancelled ? "Grupo cancelado porque todos sus archivos fueron cancelados." : current.error, progress: { ...current.progress, current: allCancelled ? current.progress.total : current.progress.current, cancelled: items.filter((item) => item.state === "cancelled").length, items } };
       });
       if (batch.progress.items.filter((item) => item.id !== itemId).every((item) => item.state === "cancelled")) {
         batchCompletionRef.current.delete(batchId);
         downloadControllerRef.current.delete(batchId);
       }
+    }
+  }
+
+  async function sendSingleSoundToReaper(sound: SendableSound) {
+    const group = await ensureSceneGroup();
+    const batchId = await enqueueDownloadBatch([sound]);
+    await new Promise<void>((resolve, reject) => {
+      const originalCompletion = batchCompletionRef.current.get(batchId);
+      batchCompletionRef.current.set(batchId, async () => {
+        try {
+          const result = await sendToReaperBridge([sound], sceneName, group.groupName);
+          if (!result.ok) throw new Error(result.error ?? "No se pudo enviar a REAPER.");
+          resolve();
+        } catch (error) {
+          reject(error);
+        } finally {
+          await originalCompletion?.();
+        }
+      });
+    });
+  }
+
+  async function importBatchToReaper(batchId: string) {
+    const batch = downloadQueue.find((candidate) => candidate.id === batchId);
+    if (!batch || batch.state !== "done" || batch.progress.failed > 0 || batch.progress.cancelled > 0) return;
+    const result = await sendToReaperBridge(batch.sounds, sceneName, batch.groupName);
+    if (!result.ok) {
+      updateBatch(batchId, (current) => ({ ...current, error: result.error ?? "No se pudo preparar la importación a REAPER." }));
     }
   }
 
@@ -195,19 +206,10 @@ export default function App() {
         const result = await downloadSoundsToDirectory(nextBatch.sounds, null, (progress) => updateBatch(nextBatch.id, (batch) => ({ ...batch, progress })), nextBatch.groupName, controller);
         const completedSuccessfully = result.failed === 0 && result.cancelled === 0;
         const wasCancelled = result.cancelled > 0;
-        updateBatch(nextBatch.id, (batch) => ({
-          ...batch,
-          state: wasCancelled ? "cancelled" : completedSuccessfully ? "done" : "error",
-          progress: { ...batch.progress, current: result.completed + result.failed + result.cancelled, total: nextBatch.sounds.length, failed: result.failed, cancelled: result.cancelled },
-          error: wasCancelled ? (result.failed > 0 ? `Cancelado: ${result.failed} archivo(s) también fallaron.` : "Cancelado por el usuario.") : result.failed > 0 ? `${result.failed} archivo(s) no pudieron descargarse.` : undefined,
-        }));
+        updateBatch(nextBatch.id, (batch) => ({ ...batch, state: wasCancelled ? "cancelled" : completedSuccessfully ? "done" : "error", progress: { ...batch.progress, current: result.completed + result.failed + result.cancelled, total: nextBatch.sounds.length, failed: result.failed, cancelled: result.cancelled }, error: wasCancelled ? (result.failed > 0 ? `Cancelado: ${result.failed} archivo(s) también fallaron.` : "Cancelado por el usuario.") : result.failed > 0 ? `${result.failed} archivo(s) no pudieron descargarse.` : undefined }));
         const completion = batchCompletionRef.current.get(nextBatch.id);
         if (completion && completedSuccessfully) {
-          try {
-            await completion();
-          } finally {
-            batchCompletionRef.current.delete(nextBatch.id);
-          }
+          try { await completion(); } finally { batchCompletionRef.current.delete(nextBatch.id); }
         } else {
           batchCompletionRef.current.delete(nextBatch.id);
         }
@@ -225,14 +227,10 @@ export default function App() {
     const group = await ensureSceneGroup();
     let resolveCompletion!: () => void;
     let rejectCompletion!: (reason?: unknown) => void;
-    const completion = new Promise<void>((resolve, reject) => {
-      resolveCompletion = resolve;
-      rejectCompletion = reject;
-    });
+    const completion = new Promise<void>((resolve, reject) => { resolveCompletion = resolve; rejectCompletion = reject; });
     const batchId = await enqueueDownloadBatch(sounds, async () => {
       const result = await sendToReaperBridge(sounds, sceneName, group.groupName);
-      if (result.ok) resolveCompletion();
-      else rejectCompletion(new Error(result.error ?? "No se pudo enviar a REAPER."));
+      if (result.ok) resolveCompletion(); else rejectCompletion(new Error(result.error ?? "No se pudo enviar a REAPER."));
     });
     return completion.then(() => batchId);
   }
@@ -250,9 +248,9 @@ export default function App() {
         <button type="button" className="frame-storage__change" onClick={() => void handleChangeDownloadRoot()} disabled={changingDownloadRoot}>{changingDownloadRoot ? "Seleccionando…" : "Cambiar carpeta"}</button>
       </div>
       <SendSelectionBar selectedLayers={selectedLayers} onSent={() => setSelectedIds(new Set())} sceneName={sceneName} onDownloadQueued={enqueueDownloadBatch} onSendQueued={queueSelectedSoundsForReaper} onEnsureSceneGroup={ensureSceneGroup} />
-      {downloadQueue.length > 0 && <DownloadQueue batches={downloadQueue} onCancelBatch={cancelDownloadBatch} onCancelItem={cancelDownloadItem} />}
+      {downloadQueue.length > 0 && <DownloadQueue batches={downloadQueue} onCancelBatch={cancelDownloadBatch} onCancelItem={cancelDownloadItem} onImportBatch={importBatchToReaper} />}
       <div className="app__grid">
-        {ELEMENTS.map(({ id, label, hint }) => <SoundtrackPanel key={id} elementId={id} label={label} hint={hint} layers={layers[id]} onLayersChange={(next: Layer[]) => setLayers((prev) => ({ ...prev, [id]: next }))} apiKeys={apiKeys} selectedIds={selectedIds} onToggleSelect={toggleSelect} onSelectIds={selectIds} onSetCategorySelection={(selectAll: boolean) => setCategorySelection(id, selectAll)} globalSoloActive={globalSoloActive} />)}
+        {ELEMENTS.map(({ id, label, hint }) => <SoundtrackPanel key={id} elementId={id} label={label} hint={hint} layers={layers[id]} onLayersChange={(next: Layer[]) => setLayers((prev) => ({ ...prev, [id]: next }))} apiKeys={apiKeys} selectedIds={selectedIds} onToggleSelect={toggleSelect} onSelectIds={selectIds} onSetCategorySelection={(selectAll: boolean) => setCategorySelection(id, selectAll)} globalSoloActive={globalSoloActive} onSendToReaper={sendSingleSoundToReaper} />)}
       </div>
     </div>
   );
