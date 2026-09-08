@@ -1,20 +1,23 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ELEMENTS, type Layer, type SoundtrackElement } from "./types";
 import { loadApiKeys, saveApiKeys, type ApiKeys } from "./api-keys";
 import { Settings } from "./component-Settings";
 import { FramePanel } from "./component-FramePanel";
 import { SoundtrackPanel } from "./component-SoundtrackPanel";
-import { SendSelectionBar, type DownloadStatus } from "./component-SendSelectionBar";
+import { SendSelectionBar } from "./component-SendSelectionBar";
+import { DownloadQueue, makeInitialDownloadProgress, type DownloadBatch } from "./component-DownloadQueue";
+import { downloadSoundsToDirectory, layerToSendableSound, type SendableSound } from "./reaper-bridge";
 
 type LayersByElement = Record<SoundtrackElement, Layer[]>;
 const emptyLayers = (): LayersByElement => ({ ambientes: [], efectos: [], foley: [] });
-const emptyDownloadStatus: DownloadStatus = { state: "idle", current: 0, total: 0, failed: 0 };
 
 export default function App() {
   const [apiKeys, setApiKeys] = useState<ApiKeys>(() => loadApiKeys());
   const [layers, setLayers] = useState<LayersByElement>(emptyLayers());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [downloadStatus, setDownloadStatus] = useState<DownloadStatus>(emptyDownloadStatus);
+  const [downloadQueue, setDownloadQueue] = useState<DownloadBatch[]>([]);
+  const activeBatchRef = useRef<string | null>(null);
+  const groupCounterRef = useRef(1);
 
   function handleSaveApiKeys(keys: ApiKeys) {
     setApiKeys(keys);
@@ -53,6 +56,83 @@ export default function App() {
     });
   }
 
+  async function enqueueDownloadBatch(sounds: SendableSound[]) {
+    if (!sounds.length) return;
+    const picker = (window as any).showDirectoryPicker;
+    if (typeof picker !== "function") {
+      window.alert("La selección de carpetas requiere Chrome o Edge actualizado.");
+      return;
+    }
+
+    try {
+      const directoryHandle = await picker({ mode: "readwrite" });
+      const groupNumber = groupCounterRef.current++;
+      const batch: DownloadBatch = {
+        id: `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        title: `Grupo ${String(groupNumber).padStart(2, "0")}`,
+        folderName: directoryHandle.name ?? "Carpeta seleccionada",
+        directoryHandle,
+        sounds,
+        state: "queued",
+        progress: makeInitialDownloadProgress(sounds),
+        createdAt: Date.now(),
+      };
+      setDownloadQueue((prev) => [...prev, batch]);
+    } catch (error: any) {
+      if (error?.name !== "AbortError") {
+        window.alert(error instanceof Error ? error.message : "No se pudo seleccionar la carpeta.");
+      }
+    }
+  }
+
+  function updateBatch(id: string, updater: (batch: DownloadBatch) => DownloadBatch) {
+    setDownloadQueue((prev) => prev.map((batch) => (batch.id === id ? updater(batch) : batch)));
+  }
+
+  function clearCompletedDownloads() {
+    setDownloadQueue((prev) => prev.filter((batch) => batch.state !== "done"));
+  }
+
+  useEffect(() => {
+    if (activeBatchRef.current) return;
+    const nextBatch = downloadQueue.find((batch) => batch.state === "queued");
+    if (!nextBatch) return;
+
+    activeBatchRef.current = nextBatch.id;
+    updateBatch(nextBatch.id, (batch) => ({ ...batch, state: "downloading" }));
+
+    void (async () => {
+      try {
+        const result = await downloadSoundsToDirectory(
+          nextBatch.sounds,
+          nextBatch.directoryHandle,
+          (progress) => {
+            updateBatch(nextBatch.id, (batch) => ({ ...batch, progress }));
+          },
+        );
+        updateBatch(nextBatch.id, (batch) => ({
+          ...batch,
+          state: result.failed > 0 ? "error" : "done",
+          progress: {
+            ...batch.progress,
+            current: result.completed,
+            total: nextBatch.sounds.length,
+            failed: result.failed,
+          },
+          error: result.failed > 0 ? `${result.failed} archivo(s) no pudieron descargarse.` : undefined,
+        }));
+      } catch (error) {
+        updateBatch(nextBatch.id, (batch) => ({
+          ...batch,
+          state: "error",
+          error: error instanceof Error ? error.message : "No se pudo completar la descarga.",
+        }));
+      } finally {
+        activeBatchRef.current = null;
+      }
+    })();
+  }, [downloadQueue]);
+
   const selectedLayers = ELEMENTS.flatMap(({ id }) =>
     layers[id]
       .filter((layer) => selectedIds.has(layer.id))
@@ -73,9 +153,14 @@ export default function App() {
       <SendSelectionBar
         selectedLayers={selectedLayers}
         onSent={() => setSelectedIds(new Set())}
-        downloadStatus={downloadStatus}
-        onDownloadStatusChange={setDownloadStatus}
+        onDownloadQueued={async (sounds) => {
+          await enqueueDownloadBatch(sounds);
+        }}
       />
+
+      {downloadQueue.length > 0 && (
+        <DownloadQueue batches={downloadQueue} onClearCompleted={clearCompletedDownloads} />
+      )}
 
       <div className="app__grid">
         {ELEMENTS.map(({ id, label, hint }) => (
