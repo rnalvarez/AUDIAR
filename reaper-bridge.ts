@@ -59,7 +59,7 @@ export function layerToSendableSound(layer: Layer, element: SoundtrackElement): 
 }
 
 export type SendResult =
-  | { ok: true; count: number; groupName: string }
+  | { ok: true; count: number; groupName: string; reusedCount: number }
   | { ok: false; notFound: true; error?: string }
   | { ok: false; notFound: false; error: string };
 
@@ -81,9 +81,7 @@ export async function createSceneGroupDirectory(_root: null, sceneName = ""): Pr
     body: JSON.stringify({ sceneName }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data?.groupName) {
-    throw new Error(data?.error ?? "No se pudo crear la carpeta de la escena.");
-  }
+  if (!res.ok || !data?.groupName) throw new Error(data?.error ?? "No se pudo crear la carpeta de la escena.");
   const match = String(data.groupName).match(/^GRUPO\s+(\d+)\b/i);
   return { handle: null, name: String(data.groupName), number: match ? Number(match[1]) : 0 };
 }
@@ -131,7 +129,7 @@ export async function downloadSoundsToDirectory(
   _directoryHandle: null,
   onProgress?: (progress: DownloadProgress) => void,
   groupName?: string,
-): Promise<{ completed: number; failed: number }> {
+): Promise<{ completed: number; failed: number; reused: number }> {
   if (!groupName) throw new Error("Falta el grupo de escena para la descarga.");
   const progress = initialProgress(sounds);
   const startedAt = performance.now();
@@ -139,6 +137,7 @@ export async function downloadSoundsToDirectory(
   let lastEmit = 0;
   let lastSpeedAt = startedAt;
   let lastSpeedBytes = 0;
+  let reused = 0;
 
   const emit = (force = false) => {
     const now = performance.now();
@@ -151,12 +150,8 @@ export async function downloadSoundsToDirectory(
       lastSpeedAt = now;
       lastSpeedBytes = progress.downloadedBytes;
     }
-    progress.items.forEach((item) => {
-      item.speedBytesPerSecond = item.state === "downloading" ? progress.speedBytesPerSecond : 0;
-    });
-    progress.etaSeconds = progress.speedBytesPerSecond > 0 && progress.remainingBytes > 0
-      ? progress.remainingBytes / progress.speedBytesPerSecond
-      : undefined;
+    progress.items.forEach((item) => { item.speedBytesPerSecond = item.state === "downloading" ? progress.speedBytesPerSecond : 0; });
+    progress.etaSeconds = progress.speedBytesPerSecond > 0 && progress.remainingBytes > 0 ? progress.remainingBytes / progress.speedBytesPerSecond : undefined;
     if (force || now - lastEmit >= 100) {
       lastEmit = now;
       onProgress?.({ ...progress, items: progress.items.map((item) => ({ ...item })) });
@@ -181,6 +176,8 @@ export async function downloadSoundsToDirectory(
           const data = await res.json().catch(() => ({}));
           throw new Error(data?.error ?? `error ${res.status}`);
         }
+        const reusedHeader = res.headers.get("x-audiar-reused");
+        if (reusedHeader === "1") reused += 1;
         const responseBytes = Number(res.headers.get("content-length") ?? item.totalBytes ?? 0);
         if (responseBytes > 0 && item.totalBytes !== responseBytes) {
           progress.totalBytes += responseBytes - item.totalBytes;
@@ -219,23 +216,23 @@ export async function downloadSoundsToDirectory(
 
   if (!sounds.length) {
     onProgress?.(progress);
-    return { completed: 0, failed: 0 };
+    return { completed: 0, failed: 0, reused: 0 };
   }
   await Promise.all(Array.from({ length: Math.min(3, sounds.length) }, () => worker()));
   emit(true);
-  return { completed: sounds.length - progress.failed, failed: progress.failed };
+  return { completed: sounds.length - progress.failed, failed: progress.failed, reused };
 }
 
-export async function sendToReaperBridge(sounds: SendableSound[], sceneName = ""): Promise<SendResult> {
+export async function sendToReaperBridge(sounds: SendableSound[], sceneName = "", groupName = ""): Promise<SendResult> {
   try {
     const res = await fetch(`${BRIDGE_URL}/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sounds, sceneName }),
+      body: JSON.stringify({ sounds, sceneName, groupName }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false, notFound: false, error: data?.error ?? `error ${res.status}` };
-    return { ok: true, count: data.queued ?? sounds.length, groupName: String(data.groupName ?? "") };
+    return { ok: true, count: data.queued ?? sounds.length, groupName: String(data.groupName ?? groupName), reusedCount: Number(data.reusedCount ?? 0) };
   } catch (error: any) {
     return { ok: false, notFound: true, error: error?.message ?? "No se encontró REAPER Bridge" };
   }
