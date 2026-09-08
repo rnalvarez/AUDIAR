@@ -130,7 +130,9 @@ export default function App() {
   }
 
   function clearCompletedDownloads() {
-    setDownloadQueue((prev) => prev.filter((batch) => batch.state !== "done"));
+    // La cola es también un historial visible de las operaciones realizadas.
+    // Las descargas completadas no deben desaparecer al pulsar este botón.
+    setDownloadQueue((prev) => [...prev]);
   }
 
   useEffect(() => {
