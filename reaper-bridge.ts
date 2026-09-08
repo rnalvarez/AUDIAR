@@ -102,7 +102,7 @@ export async function createSceneGroupDirectory(_root: null, sceneName = ""): Pr
 export interface DownloadItemState {
   id: string;
   name: string;
-  state: "queued" | "downloading" | "done" | "error";
+  state: "queued" | "downloading" | "done" | "error" | "cancelled";
   loadedBytes: number;
   totalBytes: number;
   speedBytesPerSecond: number;
@@ -113,6 +113,7 @@ export interface DownloadProgress {
   current: number;
   total: number;
   failed: number;
+  cancelled: number;
   downloadedBytes: number;
   totalBytes: number;
   remainingBytes: number;
@@ -122,12 +123,39 @@ export interface DownloadProgress {
   items: DownloadItemState[];
 }
 
+export interface DownloadController {
+  readonly batchAbortController: AbortController;
+  readonly cancelledItems: Set<string>;
+  readonly itemAbortControllers: Map<string, AbortController>;
+  cancelBatch: () => void;
+  cancelItem: (id: string) => void;
+}
+
+export function createDownloadController(): DownloadController {
+  const batchAbortController = new AbortController();
+  const cancelledItems = new Set<string>();
+  const itemAbortControllers = new Map<string, AbortController>();
+
+  const cancelBatch = () => {
+    batchAbortController.abort();
+    for (const controller of itemAbortControllers.values()) controller.abort();
+  };
+
+  const cancelItem = (id: string) => {
+    cancelledItems.add(id);
+    itemAbortControllers.get(id)?.abort();
+  };
+
+  return { batchAbortController, cancelledItems, itemAbortControllers, cancelBatch, cancelItem };
+}
+
 function initialProgress(sounds: SendableSound[]): DownloadProgress {
   const totalBytes = sounds.reduce((sum, sound) => sum + (sound.fileSize ?? 0), 0);
   return {
     current: 0,
     total: sounds.length,
     failed: 0,
+    cancelled: 0,
     downloadedBytes: 0,
     totalBytes,
     remainingBytes: totalBytes,
@@ -142,7 +170,8 @@ export async function downloadSoundsToDirectory(
   _directoryHandle: null,
   onProgress?: (progress: DownloadProgress) => void,
   groupName?: string,
-): Promise<{ completed: number; failed: number; reused: number }> {
+  controller: DownloadController = createDownloadController(),
+): Promise<{ completed: number; failed: number; cancelled: number; reused: number }> {
   if (!groupName) throw new Error("Falta el grupo de escena para la descarga.");
   const progress = initialProgress(sounds);
   const startedAt = performance.now();
@@ -175,7 +204,22 @@ export async function downloadSoundsToDirectory(
     while (true) {
       const index = nextIndex++;
       if (index >= sounds.length) return;
+      const sound = sounds[index];
       const item = progress.items[index];
+
+      if (controller.batchAbortController.signal.aborted || controller.cancelledItems.has(sound.id)) {
+        item.state = "cancelled";
+        progress.cancelled += 1;
+        progress.current += 1;
+        emit(true);
+        continue;
+      }
+
+      const itemController = new AbortController();
+      controller.itemAbortControllers.set(sound.id, itemController);
+      const abortFromBatch = () => itemController.abort();
+      controller.batchAbortController.signal.addEventListener("abort", abortFromBatch, { once: true });
+
       item.state = "downloading";
       progress.active += 1;
       emit(true);
@@ -183,7 +227,8 @@ export async function downloadSoundsToDirectory(
         const res = await fetch(`${BRIDGE_URL}/download`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sound: sounds[index], groupName }),
+          body: JSON.stringify({ sound, groupName }),
+          signal: itemController.signal,
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -216,12 +261,20 @@ export async function downloadSoundsToDirectory(
         item.state = "done";
         progress.current += 1;
       } catch (error: any) {
-        item.state = "error";
-        item.error = error?.message ?? "Error de descarga";
-        progress.failed += 1;
+        const wasCancelled = itemController.signal.aborted || controller.batchAbortController.signal.aborted || controller.cancelledItems.has(sound.id);
+        if (wasCancelled) {
+          item.state = "cancelled";
+          progress.cancelled += 1;
+        } else {
+          item.state = "error";
+          item.error = error?.message ?? "Error de descarga";
+          progress.failed += 1;
+        }
         progress.current += 1;
       } finally {
         progress.active = Math.max(0, progress.active - 1);
+        controller.itemAbortControllers.delete(sound.id);
+        controller.batchAbortController.signal.removeEventListener("abort", abortFromBatch);
         emit(true);
       }
     }
@@ -229,11 +282,11 @@ export async function downloadSoundsToDirectory(
 
   if (!sounds.length) {
     onProgress?.(progress);
-    return { completed: 0, failed: 0, reused: 0 };
+    return { completed: 0, failed: 0, cancelled: 0, reused: 0 };
   }
   await Promise.all(Array.from({ length: Math.min(3, sounds.length) }, () => worker()));
   emit(true);
-  return { completed: sounds.length - progress.failed, failed: progress.failed, reused };
+  return { completed: sounds.length - progress.failed - progress.cancelled, failed: progress.failed, cancelled: progress.cancelled, reused };
 }
 
 export async function sendToReaperBridge(sounds: SendableSound[], sceneName = "", groupName = ""): Promise<SendResult> {
