@@ -16,6 +16,7 @@ export default function App() {
   const [layers, setLayers] = useState<LayersByElement>(emptyLayers());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [downloadQueue, setDownloadQueue] = useState<DownloadBatch[]>([]);
+  const [sceneName, setSceneName] = useState("");
   const activeBatchRef = useRef<string | null>(null);
 
   function handleSaveApiKeys(keys: ApiKeys) {
@@ -60,7 +61,7 @@ export default function App() {
 
     try {
       const root = await getOrChooseDownloadRoot();
-      const group = await createSceneGroupDirectory(root.handle);
+      const group = await createSceneGroupDirectory(root.handle, sceneName);
       const batch: DownloadBatch = {
         id: `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         title: group.name,
@@ -144,7 +145,11 @@ export default function App() {
       </header>
 
       <Settings apiKeys={apiKeys} onSave={handleSaveApiKeys} />
-      <FramePanel apiKeys={apiKeys} onDesignGenerated={replaceLayers} />
+      <FramePanel
+        apiKeys={apiKeys}
+        onDesignGenerated={replaceLayers}
+        onSceneNameChange={setSceneName}
+      />
       <SendSelectionBar
         selectedLayers={selectedLayers}
         onSent={() => setSelectedIds(new Set())}
