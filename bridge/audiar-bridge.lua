@@ -51,18 +51,27 @@ end
 local function insertSound(sound, insertPosition)
   local ok, err = pcall(function()
     local track = createTrack(sound)
-    local src = reaper.PCM_Source_CreateFromFileEx(sound.path, false)
-    if not src then
-      log("No se pudo leer el archivo: " .. tostring(sound.path))
+
+    -- Importar con la función nativa de REAPER evita crear el MediaItem a mano.
+    -- Así REAPER trata el archivo como una importación normal y puede generar
+    -- los peaks/forma de onda igual que cuando se arrastra o importa manualmente.
+    reaper.SetOnlyTrackSelected(track)
+    reaper.SetEditCurPos(insertPosition, false, false)
+    reaper.InsertMedia(sound.path, 0)
+
+    local item = reaper.GetTrackMediaItem(track, 0)
+    if not item then
+      log("REAPER no pudo insertar el archivo: " .. tostring(sound.path))
       return
     end
 
-    local srcLen = reaper.GetMediaSourceLength(src)
-    local item = reaper.AddMediaItemToTrack(track)
-    local take = reaper.AddTakeToMediaItem(item)
-    reaper.SetMediaItemTake_Source(take, src)
+    local take = reaper.GetActiveTake(item)
+    if not take then
+      log("REAPER insertó el archivo pero no creó un take: " .. tostring(sound.path))
+      return
+    end
+
     reaper.SetMediaItemInfo_Value(item, "D_POSITION", insertPosition)
-    reaper.SetMediaItemInfo_Value(item, "D_LENGTH", srcLen)
 
     if type(sound.gainDb) == "number" then
       reaper.SetMediaItemInfo_Value(item, "D_VOL", dbToLinear(sound.gainDb))
