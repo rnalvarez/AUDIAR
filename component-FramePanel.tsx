@@ -46,6 +46,21 @@ export function FramePanel({ apiKeys, onDesignGenerated, onSceneNameChange, onNe
     setImageUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(file); });
     setImageFile(file); setFileName(file.name); setAnalysisError(null); handleSceneNameChange("");
   }
+  function handleClipboardPaste(event: ClipboardEvent) {
+    const target = event.target as HTMLElement | null;
+    if (target?.matches("input, textarea, [contenteditable=\"true\"]")) return;
+    const imageItem = Array.from(event.clipboardData?.items ?? []).find((item) => item.type.startsWith("image/"));
+    if (!imageItem) return;
+    const blob = imageItem.getAsFile();
+    if (!blob) return;
+    event.preventDefault();
+    const extension = blob.type === "image/jpeg" ? "jpg" : blob.type === "image/webp" ? "webp" : "png";
+    handleFile(new File([blob], `fotograma-portapapeles.${extension}`, { type: blob.type || "image/png" }));
+  }
+  useEffect(() => {
+    window.addEventListener("paste", handleClipboardPaste);
+    return () => window.removeEventListener("paste", handleClipboardPaste);
+  });
   function handleRemove() {
     onNewScene();
     setImageUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
@@ -71,7 +86,7 @@ export function FramePanel({ apiKeys, onDesignGenerated, onSceneNameChange, onNe
     <div className="frame-panel">
       <h2 className="section-title">Fotograma</h2>
       <p className="section-subtitle">cargá un fotograma y AUDIAR construye una primera propuesta sonora</p>
-      {imageUrl ? <img className="frame-panel__preview" src={imageUrl} alt="Fotograma de referencia de la escena" /> : <button className="frame-panel__dropzone" onClick={() => inputRef.current?.click()}>cargar fotograma de la escena</button>}
+      {imageUrl ? <img className="frame-panel__preview" src={imageUrl} alt="Fotograma de referencia de la escena" /> : <button className="frame-panel__dropzone" onClick={() => inputRef.current?.click()} onPaste={handleClipboardPaste}>cargar fotograma de la escena · también podés pegar con Ctrl+V</button>}
       {uploadError && <p className="frame-panel__analysis-error">{uploadError}</p>}
       <input ref={inputRef} type="file" accept={ACCEPTED_TYPES} hidden onChange={(e) => handleFile(e.target.files?.[0])} />
       {fileName && <div className="frame-panel__filename"><span className="frame-panel__filename-text">{fileName}</span><div className="frame-panel__actions"><button className="frame-panel__replace" onClick={() => inputRef.current?.click()}>cambiar</button><button className="frame-panel__remove" onClick={handleRemove}>eliminar</button></div></div>}
