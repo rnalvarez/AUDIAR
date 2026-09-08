@@ -1,6 +1,6 @@
 // AUDIAR — servidor local de descargas.
-// Entrega el archivo original de Freesound al navegador y, al mismo tiempo,
-// conserva una copia en la caché local para acelerar usos posteriores.
+// Entrega el archivo original de Freesound al navegador y reutiliza la misma
+// caché local que usa el REAPER Bridge para evitar descargas duplicadas.
 
 import { createServer } from "node:http";
 import { createReadStream, createWriteStream } from "node:fs";
@@ -144,6 +144,10 @@ function safeFilename(sound: IncomingSound): string {
     .slice(0, 180) || `sound-${sound.freesoundId}.wav`;
 }
 
+function safeCacheId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
 function contentType(sound: IncomingSound): string {
   if (sound.originalType?.startsWith("audio/")) return sound.originalType;
   if (sound.originalType) return `audio/${sound.originalType}`;
@@ -164,8 +168,9 @@ async function prepareOriginal(sound: IncomingSound): Promise<{
 
   const filename = safeFilename(sound);
   const ext = path.extname(filename) || ".wav";
-  const cacheFilename = `${sound.freesoundId}-${Buffer.from(filename).toString("base64url").slice(0, 48)}${ext.toLowerCase()}`;
-  const localPath = path.join(CACHE_DIR, `download-${cacheFilename}`);
+  // El nombre coincide con el caché del REAPER Bridge:
+  // <sound.id>-original.<ext>
+  const localPath = path.join(CACHE_DIR, `${safeCacheId(sound.id)}-original${ext.toLowerCase()}`);
 
   if (existsSync(localPath)) return { filename, localPath };
 
