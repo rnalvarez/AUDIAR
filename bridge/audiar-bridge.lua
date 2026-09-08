@@ -2,14 +2,14 @@
 --
 -- Corre DENTRO de REAPER, en loop (reaper.defer), y revisa la carpeta de
 -- trabajos que escribe bridge/index.ts. Cada sonido se inserta en SU PROPIA
--- PISTA, con color según categoría. Todos los jobs pendientes del mismo
--- ciclo de polling se consideran un único bloque y comparten el mismo
--- timecode de inserción.
+-- PISTA, con color según categoría. Los jobs pendientes se agrupan en un
+-- bloque temporal después de una breve ventana de estabilidad.
 
 local SEP = package.config:sub(1, 1)
 local resource_path = reaper.GetResourcePath()
 local JOBS_DIR = resource_path .. SEP .. "audiar-bridge" .. SEP .. "jobs"
 local POLL_INTERVAL_SEC = 0.25
+local JOB_BATCH_SETTLE_SEC = 0.20
 local POSITION_EPSILON = 0.000001
 
 local function log(msg)
@@ -55,9 +55,6 @@ local function normalizePath(value)
   return tostring(value or ""):gsub("/", "\\"):lower()
 end
 
--- Comprueba si REAPER ya tiene exactamente este archivo en este timecode.
--- El mismo sonido puede volver a insertarse en otro timecode, pero no se
--- duplica en la misma posición.
 local function mediaItemExistsAtPosition(soundPath, insertPosition)
   local wanted = normalizePath(soundPath)
   for trackIndex = 0, reaper.CountTracks(0) - 1 do
@@ -90,10 +87,6 @@ local function insertSound(sound, insertPosition)
     end
 
     local track = createTrack(sound)
-
-    -- Importación nativa de REAPER para conservar la generación normal de peaks.
-    -- Se recoloca el cursor ANTES de cada importación para que InsertMedia no
-    -- arrastre al siguiente sonido a una posición posterior.
     reaper.SetOnlyTrackSelected(track)
     reaper.SetEditCurPos(insertPosition, false, false)
     reaper.InsertMedia(sound.path, 0)
@@ -165,9 +158,6 @@ local function processPendingJobs()
   local files = listJobFiles()
   if #files == 0 then return end
 
-  -- MUY IMPORTANTE: todos los jobs pendientes se reúnen antes de capturar
-  -- el cursor. Así, aunque el Bridge haya escrito un .lua por sonido,
-  -- todos los archivos de un mismo envío quedan verticalmente alineados.
   local insertPosition = reaper.GetCursorPosition()
   local sounds = {}
 
@@ -184,31 +174,44 @@ local function processPendingJobs()
 
   reaper.Undo_BeginBlock()
   reaper.PreventUIRefresh(1)
-
   for _, sound in ipairs(sounds) do
     insertSound(sound, insertPosition)
   end
-
   reaper.PreventUIRefresh(-1)
   reaper.SetEditCurPos(insertPosition, false, false)
   reaper.Undo_EndBlock("AUDIAR: insertar bloque de sonidos", -1)
   reaper.UpdateArrange()
-
   log("Procesados " .. tostring(#sounds) .. " sonido/s como bloque en " .. string.format("%.3f s", insertPosition))
 end
 
-local function ensureJobsDir()
-  reaper.RecursiveCreateDirectory(JOBS_DIR, 0)
-end
-
 local lastPollTime = 0
+local lastJobSignature = ""
+local jobsStableSince = nil
+
 local function poll()
   local now = reaper.time_precise()
   if now - lastPollTime >= POLL_INTERVAL_SEC then
     lastPollTime = now
-    processPendingJobs()
+    local files = listJobFiles()
+    local signature = table.concat(files, "\n")
+
+    if #files == 0 then
+      lastJobSignature = ""
+      jobsStableSince = nil
+    elseif signature ~= lastJobSignature then
+      lastJobSignature = signature
+      jobsStableSince = now
+    elseif jobsStableSince and now - jobsStableSince >= JOB_BATCH_SETTLE_SEC then
+      processPendingJobs()
+      lastJobSignature = ""
+      jobsStableSince = nil
+    end
   end
   reaper.defer(poll)
+end
+
+local function ensureJobsDir()
+  reaper.RecursiveCreateDirectory(JOBS_DIR, 0)
 end
 
 ensureJobsDir()
