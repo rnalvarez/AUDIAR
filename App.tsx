@@ -127,6 +127,10 @@ export default function App() {
       <SendSelectionBar selectedLayers={selectedLayers} onSent={() => setSelectedIds(new Set())} sceneName={sceneName} onDownloadQueued={enqueueDownloadBatch} onSendQueued={queueSelectedSoundsForReaper} onEnsureSceneGroup={ensureSceneGroup} />
       {downloadQueue.length > 0 && <DownloadQueue batches={downloadQueue} onCancelBatch={cancelDownloadBatch} onCancelItem={cancelDownloadItem} onImportBatch={importBatchToReaper} />}
       <div className="app__grid">{ELEMENTS.map(({ id, label, hint }) => <SoundtrackPanel key={id} elementId={id} label={label} hint={hint} layers={layers[id]} onLayersChange={(next: Layer[]) => setLayers((prev) => ({ ...prev, [id]: next }))} apiKeys={apiKeys} selectedIds={selectedIds} onToggleSelect={toggleSelect} onSelectIds={selectIds} onSetCategorySelection={(selectAll: boolean) => setCategorySelection(id, selectAll)} globalSoloActive={globalSoloActive} onSendToReaper={sendSingleSoundToReaper} />)}</div>
+      <footer className="app__footer">
+        <div className="app__footer-credit">Diseñado y creado por <strong>Ramiro N. Alvarez</strong> · con herramientas de IA.</div>
+        <div className="app__footer-legal">Los sonidos se obtienen de <a href="https://freesound.org/" target="_blank" rel="noreferrer">Freesound</a> y cada resultado conserva la licencia indicada por su autor. CC BY requiere atribución; CC0 no la exige. Verificá siempre las condiciones de la licencia antes de publicar una producción. <a href="https://freesound.org/help/tos_api/" target="_blank" rel="noreferrer">Condiciones de la API de Freesound</a>.</div>
+      </footer>
     </div>
   );
 }
