@@ -26,6 +26,18 @@ function extractFreesoundId(id: string): number | null {
   const match = id.match(/(?:^|-)(?:freesound-(?:ambientes-|efectos-|foley-)?)(\d+)(?:-|$)/);
   return match ? Number(match[1]) : null;
 }
+function licenseLabel(license: string): string {
+  const value = license.toLowerCase();
+  if (value.includes("creative commons 0") || value.includes("cc0") || value.includes("publicdomain/zero")) return "CC0";
+  if (value.includes("attribution") && !value.includes("noncommercial")) return "CC BY · atribución";
+  return "revisar licencia";
+}
+function licenseHelp(license: string): string {
+  const label = licenseLabel(license);
+  if (label === "CC BY · atribución") return "Creative Commons Attribution: permite uso comercial, pero requiere atribución al autor.";
+  if (label === "CC0") return "Creative Commons 0: no exige atribución, aunque conviene conservar el enlace y registro de procedencia.";
+  return `Licencia indicada por Freesound: ${license || "desconocida"}. Verificá sus condiciones antes de publicar.`;
+}
 
 export function LayerStrip({ layer, element, selected, otherSoloActive, onToggleSelect, onChange, onRemove, onAddResults, onSelectIds, apiKeys, onSendToReaper }: Props) {
   const [sendState, setSendState] = useState<SendState>("idle");
@@ -112,6 +124,7 @@ export function LayerStrip({ layer, element, selected, otherSoloActive, onToggle
   }
 
   const sendLabel: Record<SendState, string> = { idle: "Enviar a REAPER", connecting: "Enviando al bridge...", sent: "Enviado al grupo ✓", "not-found": "No se encontró REAPER Bridge", error: "No se pudo enviar" };
+  const currentLicenseLabel = licenseLabel(layer.license);
   return (
     <div className="layer-strip">
       <div className="layer-strip__top">
@@ -120,7 +133,7 @@ export function LayerStrip({ layer, element, selected, otherSoloActive, onToggle
         <button className="layer-strip__remove" onClick={onRemove} aria-label={`Quitar ${layer.name}`}>×</button>
       </div>
       <div className="layer-strip__name" title={layer.name}>{layer.name}</div>
-      <span className={`layer-strip__badge ${layer.commerciallySafe ? "is-safe" : "is-unsafe"}`} title={layer.license}>{layer.commerciallySafe ? "uso comercial OK" : "solo no comercial"}</span>
+      <span className={`layer-strip__badge ${layer.commerciallySafe ? "is-safe" : "is-unsafe"}`} title={licenseHelp(layer.license)}>{currentLicenseLabel}</span>
       <div className="layer-strip__controls" aria-label={`Controles de ${layer.name}`}>
         <label className="layer-strip__row"><span>vol</span><input type="range" min={-60} max={6} step={0.5} value={layer.gainDb} onChange={(e) => onChange({ gainDb: Number(e.target.value) })} /><span className="layer-strip__value">{layer.gainDb.toFixed(1)}dB</span></label>
         <label className="layer-strip__row"><span>pan</span><input type="range" min={-1} max={1} step={0.1} value={layer.pan} onChange={(e) => onChange({ pan: Number(e.target.value) })} /><span className="layer-strip__value">{layer.pan === 0 ? "C" : layer.pan < 0 ? `${Math.abs(layer.pan * 100).toFixed(0)}L` : `${(layer.pan * 100).toFixed(0)}R`}</span></label>
@@ -135,6 +148,7 @@ export function LayerStrip({ layer, element, selected, otherSoloActive, onToggle
           {selectedAlternatives.size > 0 && <button className="layer-strip__add-selected" onClick={addSelectedAlternatives}>sumar seleccionados al diseño ({selectedAlternatives.size})</button>}
         </div>}
       </div>
+      {layer.freesoundUrl && <a className="layer-strip__license-link" href={layer.freesoundUrl} target="_blank" rel="noreferrer">ver licencia en Freesound</a>}
       <button className={`layer-strip__reaper-btn reaper-state-${sendState}`} onClick={() => void handleSendToReaper()} disabled={sendState === "connecting"}>{sendLabel[sendState]}</button>
     </div>
   );
