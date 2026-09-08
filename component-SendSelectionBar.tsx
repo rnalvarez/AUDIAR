@@ -32,14 +32,25 @@ export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued }: P
   async function handleSend() {
     const sounds = selectedLayers.map(({ layer, element }) => layerToSendableSound(layer, element));
     setState("connecting");
-    const result = await sendToReaperBridge(sounds);
-    if (result.ok) {
-      setState("sent");
-      onSent();
-    } else if (result.notFound) {
-      setState("not-found");
-    } else {
+
+    try {
+      // La misma selección que se envía a REAPER queda además archivada
+      // en el siguiente grupo de escena de la cola de descargas.
+      await onDownloadQueued(sounds);
+      setDownloadQueued(true);
+
+      const result = await sendToReaperBridge(sounds);
+      if (result.ok) {
+        setState("sent");
+        onSent();
+      } else if (result.notFound) {
+        setState("not-found");
+      } else {
+        setState("error");
+      }
+    } catch (error) {
       setState("error");
+      console.error("[AUDIAR] No se pudo crear el grupo para REAPER:", error);
     }
   }
 
