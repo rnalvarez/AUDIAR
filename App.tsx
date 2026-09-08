@@ -6,7 +6,7 @@ import { FramePanel } from "./component-FramePanel";
 import { SoundtrackPanel } from "./component-SoundtrackPanel";
 import { SendSelectionBar } from "./component-SendSelectionBar";
 import { DownloadQueue, makeInitialDownloadProgress, type DownloadBatch } from "./component-DownloadQueue";
-import { changeDownloadRoot, createSceneGroupDirectory, downloadSoundsToDirectory, getDownloadRootStatus, getOrChooseDownloadRoot, sendToReaperBridge, type SendableSound } from "./reaper-bridge";
+import { changeDownloadRoot, createDownloadController, createSceneGroupDirectory, downloadSoundsToDirectory, getDownloadRootStatus, getOrChooseDownloadRoot, sendToReaperBridge, type DownloadController, type SendableSound } from "./reaper-bridge";
 
 type LayersByElement = Record<SoundtrackElement, Layer[]>;
 const emptyLayers = (): LayersByElement => ({ ambientes: [], efectos: [], foley: [] });
@@ -25,6 +25,7 @@ export default function App() {
   const sceneGroupCreationRef = useRef<Promise<{ rootName: string; groupName: string }> | null>(null);
   const activeBatchRef = useRef<string | null>(null);
   const batchCompletionRef = useRef<Map<string, BatchCompletion>>(new Map());
+  const downloadControllerRef = useRef<Map<string, DownloadController>>(new Map());
 
   useEffect(() => {
     void getDownloadRootStatus().then((root) => setDownloadRootName(root?.name ?? "")).catch(() => {});
@@ -110,6 +111,7 @@ export default function App() {
     if (!sounds.length) throw new Error("No hay sonidos para descargar.");
     const group = await ensureSceneGroup();
     const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const controller = createDownloadController();
     const batch: DownloadBatch = {
       id: batchId,
       title: group.groupName,
@@ -120,6 +122,7 @@ export default function App() {
       progress: makeInitialDownloadProgress(sounds),
       createdAt: Date.now(),
     };
+    downloadControllerRef.current.set(batchId, controller);
     if (onCompleted) batchCompletionRef.current.set(batchId, onCompleted);
     setDownloadQueue((prev) => [...prev, batch]);
     return batchId;
@@ -129,22 +132,70 @@ export default function App() {
     setDownloadQueue((prev) => prev.map((batch) => (batch.id === id ? updater(batch) : batch)));
   }
 
+  function markQueuedBatchCancelled(id: string) {
+    updateBatch(id, (batch) => ({
+      ...batch,
+      state: "cancelled",
+      progress: {
+        ...batch.progress,
+        current: batch.progress.total,
+        cancelled: batch.progress.total,
+        active: 0,
+        remainingBytes: 0,
+        items: batch.progress.items.map((item) => item.state === "done" ? item : { ...item, state: "cancelled", speedBytesPerSecond: 0 }),
+      },
+      error: "Grupo cancelado por el usuario.",
+    }));
+    batchCompletionRef.current.delete(id);
+  }
+
+  function cancelDownloadBatch(id: string) {
+    const batch = downloadQueue.find((candidate) => candidate.id === id);
+    const controller = downloadControllerRef.current.get(id);
+    if (!batch || !controller) return;
+    controller.cancelBatch();
+    if (batch.state === "queued") markQueuedBatchCancelled(id);
+  }
+
+  function cancelDownloadItem(batchId: string, itemId: string) {
+    const batch = downloadQueue.find((candidate) => candidate.id === batchId);
+    const controller = downloadControllerRef.current.get(batchId);
+    if (!batch || !controller) return;
+    controller.cancelItem(itemId);
+    if (batch.state === "queued") {
+      updateBatch(batchId, (current) => {
+        const items = current.progress.items.map((item) => item.id === itemId ? { ...item, state: "cancelled", speedBytesPerSecond: 0, error: undefined } : item);
+        const allCancelled = items.every((item) => item.state === "cancelled");
+        return {
+          ...current,
+          state: allCancelled ? "cancelled" : current.state,
+          error: allCancelled ? "Grupo cancelado porque todos sus archivos fueron cancelados." : current.error,
+          progress: { ...current.progress, current: allCancelled ? current.progress.total : current.progress.current, cancelled: items.filter((item) => item.state === "cancelled").length, items },
+        };
+      });
+      if (batch.progress.items.filter((item) => item.id !== itemId).every((item) => item.state === "cancelled")) batchCompletionRef.current.delete(batchId);
+    }
+  }
+
   useEffect(() => {
     if (activeBatchRef.current) return;
     const nextBatch = downloadQueue.find((batch) => batch.state === "queued");
     if (!nextBatch) return;
+    const controller = downloadControllerRef.current.get(nextBatch.id) ?? createDownloadController();
+    downloadControllerRef.current.set(nextBatch.id, controller);
     activeBatchRef.current = nextBatch.id;
     updateBatch(nextBatch.id, (batch) => ({ ...batch, state: "downloading" }));
 
     void (async () => {
       try {
-        const result = await downloadSoundsToDirectory(nextBatch.sounds, null, (progress) => updateBatch(nextBatch.id, (batch) => ({ ...batch, progress })), nextBatch.groupName);
-        const completedSuccessfully = result.failed === 0;
+        const result = await downloadSoundsToDirectory(nextBatch.sounds, null, (progress) => updateBatch(nextBatch.id, (batch) => ({ ...batch, progress })), nextBatch.groupName, controller);
+        const completedSuccessfully = result.failed === 0 && result.cancelled === 0;
+        const wasCancelled = result.cancelled > 0;
         updateBatch(nextBatch.id, (batch) => ({
           ...batch,
-          state: completedSuccessfully ? "done" : "error",
-          progress: { ...batch.progress, current: result.completed + result.failed, total: nextBatch.sounds.length, failed: result.failed },
-          error: result.failed > 0 ? `${result.failed} archivo(s) no pudieron descargarse.` : undefined,
+          state: wasCancelled ? "cancelled" : completedSuccessfully ? "done" : "error",
+          progress: { ...batch.progress, current: result.completed + result.failed + result.cancelled, total: nextBatch.sounds.length, failed: result.failed, cancelled: result.cancelled },
+          error: wasCancelled ? (result.failed > 0 ? `Cancelado: ${result.failed} archivo(s) también fallaron.` : "Cancelado por el usuario.") : result.failed > 0 ? `${result.failed} archivo(s) no pudieron descargarse.` : undefined,
         }));
         const completion = batchCompletionRef.current.get(nextBatch.id);
         if (completion && completedSuccessfully) {
@@ -160,6 +211,7 @@ export default function App() {
         batchCompletionRef.current.delete(nextBatch.id);
         updateBatch(nextBatch.id, (batch) => ({ ...batch, state: "error", error: error instanceof Error ? error.message : "No se pudo completar la descarga." }));
       } finally {
+        downloadControllerRef.current.delete(nextBatch.id);
         activeBatchRef.current = null;
       }
     })();
@@ -194,7 +246,7 @@ export default function App() {
         <button type="button" className="frame-storage__change" onClick={() => void handleChangeDownloadRoot()} disabled={changingDownloadRoot}>{changingDownloadRoot ? "Seleccionando…" : "Cambiar carpeta"}</button>
       </div>
       <SendSelectionBar selectedLayers={selectedLayers} onSent={() => setSelectedIds(new Set())} sceneName={sceneName} onDownloadQueued={enqueueDownloadBatch} onSendQueued={queueSelectedSoundsForReaper} onEnsureSceneGroup={ensureSceneGroup} />
-      {downloadQueue.length > 0 && <DownloadQueue batches={downloadQueue} />}
+      {downloadQueue.length > 0 && <DownloadQueue batches={downloadQueue} onCancelBatch={cancelDownloadBatch} onCancelItem={cancelDownloadItem} />}
       <div className="app__grid">
         {ELEMENTS.map(({ id, label, hint }) => <SoundtrackPanel key={id} elementId={id} label={label} hint={hint} layers={layers[id]} onLayersChange={(next: Layer[]) => setLayers((prev) => ({ ...prev, [id]: next }))} apiKeys={apiKeys} selectedIds={selectedIds} onToggleSelect={toggleSelect} onSelectIds={selectIds} onSetCategorySelection={(selectAll: boolean) => setCategorySelection(id, selectAll)} globalSoloActive={globalSoloActive} />)}
       </div>
