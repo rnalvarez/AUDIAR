@@ -142,12 +142,7 @@ export default function App() {
 
     void (async () => {
       try {
-        const result = await downloadSoundsToDirectory(
-          nextBatch.sounds,
-          null,
-          (progress) => updateBatch(nextBatch.id, (batch) => ({ ...batch, progress })),
-          nextBatch.groupName,
-        );
+        const result = await downloadSoundsToDirectory(nextBatch.sounds, null, (progress) => updateBatch(nextBatch.id, (batch) => ({ ...batch, progress })), nextBatch.groupName);
         const completedSuccessfully = result.failed === 0;
         updateBatch(nextBatch.id, (batch) => ({
           ...batch,
@@ -167,11 +162,7 @@ export default function App() {
         }
       } catch (error) {
         batchCompletionRef.current.delete(nextBatch.id);
-        updateBatch(nextBatch.id, (batch) => ({
-          ...batch,
-          state: "error",
-          error: error instanceof Error ? error.message : "No se pudo completar la descarga.",
-        }));
+        updateBatch(nextBatch.id, (batch) => ({ ...batch, state: "error", error: error instanceof Error ? error.message : "No se pudo completar la descarga." }));
       } finally {
         activeBatchRef.current = null;
       }
@@ -180,70 +171,36 @@ export default function App() {
 
   async function queueSelectedSoundsForReaper(sounds: SendableSound[]): Promise<string> {
     const group = await ensureSceneGroup();
-    return enqueueDownloadBatch(sounds, async () => {
-      await sendToReaperBridge(sounds, sceneName, group.groupName);
+    let resolveCompletion!: () => void;
+    let rejectCompletion!: (reason?: unknown) => void;
+    const completion = new Promise<void>((resolve, reject) => {
+      resolveCompletion = resolve;
+      rejectCompletion = reject;
     });
+    const batchId = await enqueueDownloadBatch(sounds, async () => {
+      const result = await sendToReaperBridge(sounds, sceneName, group.groupName);
+      if (result.ok) resolveCompletion();
+      else rejectCompletion(new Error(result.error ?? "No se pudo enviar a REAPER."));
+    });
+    return completion.then(() => batchId);
   }
 
-  const selectedLayers = ELEMENTS.flatMap(({ id }) =>
-    layers[id]
-      .filter((layer) => selectedIds.has(layer.id))
-      .map((layer) => ({ layer, element: id })),
-  );
+  const selectedLayers = ELEMENTS.flatMap(({ id }) => layers[id].filter((layer) => selectedIds.has(layer.id)).map((layer) => ({ layer, element: id })));
   const globalSoloActive = ELEMENTS.some(({ id }) => layers[id].some((layer) => layer.solo));
 
   return (
     <div className="app">
-      <header className="app__header">
-        <h1>AUDIAR</h1>
-        <span className="app__tagline">diseño sonoro a partir de un fotograma, en capas</span>
-      </header>
+      <header className="app__header"><h1>AUDIAR</h1><span className="app__tagline">diseño sonoro a partir de un fotograma, en capas</span></header>
       <Settings apiKeys={apiKeys} onSave={handleSaveApiKeys} />
-      <FramePanel
-        apiKeys={apiKeys}
-        onDesignGenerated={replaceLayers}
-        onSceneNameChange={setSceneName}
-        onNewScene={handleNewScene}
-      />
+      <FramePanel apiKeys={apiKeys} onDesignGenerated={replaceLayers} onSceneNameChange={setSceneName} onNewScene={handleNewScene} />
       <div className="frame-storage" aria-live="polite">
-        <div className="frame-storage__main">
-          <div className="frame-storage__label">Carpeta de almacenamiento</div>
-          <div className="frame-storage__path" title={downloadRootName || "No seleccionada"}>
-            {downloadRootName || "No seleccionada"}
-          </div>
-          <div className="frame-storage__help">Los grupos y archivos nuevos se guardarán aquí.</div>
-          {downloadRootError && <div className="frame-storage__error">{downloadRootError}</div>}
-        </div>
-        <button type="button" className="frame-storage__change" onClick={() => void handleChangeDownloadRoot()} disabled={changingDownloadRoot}>
-          {changingDownloadRoot ? "Seleccionando…" : "Cambiar carpeta"}
-        </button>
+        <div className="frame-storage__main"><div className="frame-storage__label">Carpeta de almacenamiento</div><div className="frame-storage__path" title={downloadRootName || "No seleccionada"}>{downloadRootName || "No seleccionada"}</div><div className="frame-storage__help">Los grupos y archivos nuevos se guardarán aquí.</div>{downloadRootError && <div className="frame-storage__error">{downloadRootError}</div>}</div>
+        <button type="button" className="frame-storage__change" onClick={() => void handleChangeDownloadRoot()} disabled={changingDownloadRoot}>{changingDownloadRoot ? "Seleccionando…" : "Cambiar carpeta"}</button>
       </div>
-      <SendSelectionBar
-        selectedLayers={selectedLayers}
-        onSent={() => setSelectedIds(new Set())}
-        sceneName={sceneName}
-        onDownloadQueued={enqueueDownloadBatch}
-        onSendQueued={queueSelectedSoundsForReaper}
-        onEnsureSceneGroup={ensureSceneGroup}
-      />
+      <SendSelectionBar selectedLayers={selectedLayers} onSent={() => setSelectedIds(new Set())} sceneName={sceneName} onDownloadQueued={enqueueDownloadBatch} onSendQueued={queueSelectedSoundsForReaper} onEnsureSceneGroup={ensureSceneGroup} />
       {downloadQueue.length > 0 && <DownloadQueue batches={downloadQueue} onClearCompleted={clearCompletedDownloads} />}
       <div className="app__grid">
-        {ELEMENTS.map(({ id, label, hint }) => (
-          <SoundtrackPanel
-            key={id}
-            elementId={id}
-            label={label}
-            hint={hint}
-            layers={layers[id]}
-            onLayersChange={(next: Layer[]) => setLayers((prev) => ({ ...prev, [id]: next }))}
-            apiKeys={apiKeys}
-            selectedIds={selectedIds}
-            onToggleSelect={toggleSelect}
-            onSelectIds={selectIds}
-            onSetCategorySelection={(selectAll: boolean) => setCategorySelection(id, selectAll)}
-            globalSoloActive={globalSoloActive}
-          />
-        ))}
+        {ELEMENTS.map(({ id, label, hint }) => <SoundtrackPanel key={id} elementId={id} label={label} hint={hint} layers={layers[id]} onLayersChange={(next: Layer[]) => setLayers((prev) => ({ ...prev, [id]: next }))} apiKeys={apiKeys} selectedIds={selectedIds} onToggleSelect={toggleSelect} onSelectIds={selectIds} onSetCategorySelection={(selectAll: boolean) => setCategorySelection(id, selectAll)} globalSoloActive={globalSoloActive} />)}
       </div>
     </div>
   );
