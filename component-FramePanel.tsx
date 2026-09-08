@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ClipboardEvent as ReactClipboardEvent } from "react";
 import type { Layer, SoundtrackElement, SceneAnalysis } from "./types";
 import type { ApiKeys } from "./api-keys";
 import { analyzeFrameSceneDirect } from "./direct-vision-v2";
@@ -46,7 +47,7 @@ export function FramePanel({ apiKeys, onDesignGenerated, onSceneNameChange, onNe
     setImageUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(file); });
     setImageFile(file); setFileName(file.name); setAnalysisError(null); handleSceneNameChange("");
   }
-  function handleClipboardPaste(event: ClipboardEvent) {
+  function handleClipboardPaste(event: ClipboardEvent | ReactClipboardEvent<HTMLButtonElement>) {
     const target = event.target as HTMLElement | null;
     if (target?.matches("input, textarea, [contenteditable=\"true\"]")) return;
     const imageItem = Array.from(event.clipboardData?.items ?? []).find((item) => item.type.startsWith("image/"));
@@ -58,8 +59,9 @@ export function FramePanel({ apiKeys, onDesignGenerated, onSceneNameChange, onNe
     handleFile(new File([blob], `fotograma-portapapeles.${extension}`, { type: blob.type || "image/png" }));
   }
   useEffect(() => {
-    window.addEventListener("paste", handleClipboardPaste);
-    return () => window.removeEventListener("paste", handleClipboardPaste);
+    const handleWindowPaste = (event: ClipboardEvent) => handleClipboardPaste(event);
+    window.addEventListener("paste", handleWindowPaste);
+    return () => window.removeEventListener("paste", handleWindowPaste);
   });
   function handleRemove() {
     onNewScene();
