@@ -74,6 +74,13 @@ export async function getOrChooseDownloadRoot(): Promise<DownloadRootHandle> {
   return { handle: null, name: String(chooseData?.name ?? "") };
 }
 
+export async function changeDownloadRoot(): Promise<DownloadRootHandle> {
+  const chooseRes = await fetch(`${BRIDGE_URL}/storage/choose`, { method: "POST" });
+  const chooseData = await chooseRes.json().catch(() => ({}));
+  if (!chooseRes.ok) throw new Error(chooseData?.error ?? "No se pudo cambiar la carpeta raíz.");
+  return { handle: null, name: String(chooseData?.name ?? "") };
+}
+
 export async function createSceneGroupDirectory(_root: null, sceneName = ""): Promise<{ handle: null; name: string; number: number }> {
   const res = await fetch(`${BRIDGE_URL}/storage/group`, {
     method: "POST",
