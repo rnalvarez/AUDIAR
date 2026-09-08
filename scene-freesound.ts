@@ -1,6 +1,8 @@
 import type { FreesoundResultItem } from "./types";
 
-const FREESOUND_SEARCH_ENDPOINT = "https://freesound.org/apiv2/search/text/";
+// Freesound APIv2: /search/text/ quedó deprecated en noviembre de 2025.
+// Usamos directamente el endpoint vigente /search/.
+const FREESOUND_SEARCH_ENDPOINT = "https://freesound.org/apiv2/search/";
 
 function isCommerciallySafe(license: string): boolean {
   const value = license.toLowerCase();
