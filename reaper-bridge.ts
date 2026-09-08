@@ -88,7 +88,9 @@ function openRootDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(ROOT_DB_NAME, 1);
     request.onupgradeneeded = () => {
-      request.result.createObjectStore(ROOT_DB_STORE);
+      if (!request.result.objectStoreNames.contains(ROOT_DB_STORE)) {
+        request.result.createObjectStore(ROOT_DB_STORE);
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("No se pudo abrir el almacenamiento local."));
@@ -167,9 +169,21 @@ async function nextGroupNumber(root: any): Promise<number> {
   return max + 1;
 }
 
-export async function createSceneGroupDirectory(root: any): Promise<{ handle: any; name: string; number: number }> {
+function sanitizeSceneName(value: string): string {
+  return value
+    .trim()
+    .replace(/[<>:\"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/[. ]+$/, "")
+    .replace(/\s+/g, " ")
+    .slice(0, 80)
+    .trim();
+}
+
+export async function createSceneGroupDirectory(root: any, sceneName = ""): Promise<{ handle: any; name: string; number: number }> {
   const number = await nextGroupNumber(root);
-  const name = `GRUPO ${String(number).padStart(2, "0")} - Escena ${String(number).padStart(2, "0")}`;
+  const baseName = `GRUPO ${String(number).padStart(2, "0")} - Escena ${String(number).padStart(2, "0")}`;
+  const cleanSceneName = sanitizeSceneName(sceneName);
+  const name = cleanSceneName ? `${baseName} - ${cleanSceneName}` : baseName;
   const handle = await root.getDirectoryHandle(name, { create: true });
   return { handle, name, number };
 }
