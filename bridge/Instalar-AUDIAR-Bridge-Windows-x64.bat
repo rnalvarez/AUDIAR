@@ -28,10 +28,11 @@ if "%RC%"=="0" (
   echo Script actualizado de REAPER:
   echo   %REAPER_SCRIPTS%\audiar-bridge.lua
   echo.
-  echo Se actualizaron:
-  echo   - comunicacion e importacion en REAPER
-  echo   - descarga de archivos originales de Freesound
-  echo   - servidor local para "Descargar todo" en el puerto 8766
+  echo El Bridge ahora:
+  echo   - guarda los audios directamente en la carpeta elegida
+  echo   - usa esos mismos archivos para importarlos en REAPER
+  echo   - ya NO necesita un cache persistente de audios
+  echo   - mantiene solo jobs temporales y credenciales OAuth en REAPER
   echo.
   echo IMPORTANTE:
   echo   Si REAPER ya tenia cargado el Lua anterior, detenelo y volve a
@@ -99,35 +100,17 @@ if defined NODE_EXE (
   echo Node.js no esta instalado.
   echo Descargando Node.js %NODE_VERSION% LTS...
   >> "%LOG%" echo [AUDIAR] Descargando %NODE_URL%
-
   powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
     "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri '%NODE_URL%' -OutFile '%NODE_MSI%'"
-  if errorlevel 1 (
-    call :fail 20 "No se pudo descargar Node.js. Revisa tu conexion a Internet."
-    exit /b 20
-  )
-
-  if not exist "%NODE_MSI%" (
-    call :fail 21 "La descarga de Node.js no produjo el archivo MSI."
-    exit /b 21
-  )
-
+  if errorlevel 1 ( call :fail 20 "No se pudo descargar Node.js. Revisa tu conexion a Internet." & exit /b 20 )
+  if not exist "%NODE_MSI%" ( call :fail 21 "La descarga de Node.js no produjo el archivo MSI." & exit /b 21 )
   echo Instalando Node.js...
   >> "%LOG%" echo [AUDIAR] Instalando Node.js
   msiexec.exe /i "%NODE_MSI%" /passive /norestart
-  if errorlevel 1 (
-    call :fail 22 "La instalacion de Node.js fallo. Codigo MSI: %errorlevel%"
-    exit /b 22
-  )
-
+  if errorlevel 1 ( call :fail 22 "La instalacion de Node.js fallo. Codigo MSI: %errorlevel%" & exit /b 22 )
   set "PATH=%ProgramFiles%\nodejs;%PATH%"
   set "NODE_EXE=%ProgramFiles%\nodejs\node.exe"
-
-  if not exist "%NODE_EXE%" (
-    call :fail 23 "Node.js termino de instalarse pero node.exe no aparece en Program Files."
-    exit /b 23
-  )
-
+  if not exist "%NODE_EXE%" ( call :fail 23 "Node.js termino de instalarse pero node.exe no aparece en Program Files." & exit /b 23 )
   for /f "delims=" %%V in ('"%NODE_EXE%" -v 2^>nul') do set "NODE_INSTALLED=%%V"
   echo Node.js instalado: !NODE_INSTALLED!
 )
@@ -136,85 +119,39 @@ echo.
 echo Descargando AUDIAR...
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO_ZIP%' -OutFile '%ZIP_FILE%'"
-if errorlevel 1 (
-  call :fail 30 "No se pudo descargar AUDIAR desde GitHub."
-  exit /b 30
-)
-if not exist "%ZIP_FILE%" (
-  call :fail 31 "No se encontro el ZIP descargado de AUDIAR."
-  exit /b 31
-)
-
+if errorlevel 1 ( call :fail 30 "No se pudo descargar AUDIAR desde GitHub." & exit /b 30 )
+if not exist "%ZIP_FILE%" ( call :fail 31 "No se encontro el ZIP descargado de AUDIAR." & exit /b 31 )
 if exist "%EXTRACT_DIR%" rmdir /s /q "%EXTRACT_DIR%"
 mkdir "%EXTRACT_DIR%" >nul 2>&1
-
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "Expand-Archive -LiteralPath '%ZIP_FILE%' -DestinationPath '%EXTRACT_DIR%' -Force"
-if errorlevel 1 (
-  call :fail 32 "No se pudo descomprimir AUDIAR."
-  exit /b 32
-)
-
+if errorlevel 1 ( call :fail 32 "No se pudo descomprimir AUDIAR." & exit /b 32 )
 set "REPO_DIR="
 for /d %%D in ("%EXTRACT_DIR%\AUDIAR-main*") do if not defined REPO_DIR set "REPO_DIR=%%~fD"
+if not defined REPO_DIR ( call :fail 33 "No se encontro la carpeta AUDIAR-main despues de descomprimir." & exit /b 33 )
+if not exist "%REPO_DIR%\bridge\package.json" ( call :fail 34 "No se encontro bridge\package.json." & exit /b 34 )
+if not exist "%REPO_DIR%\bridge\index.ts" ( call :fail 35 "No se encontro bridge\index.ts." & exit /b 35 )
+if not exist "%REPO_DIR%\bridge\start.ts" ( call :fail 37 "No se encontro bridge\start.ts." & exit /b 37 )
+if not exist "%REPO_DIR%\bridge\audiar-bridge.lua" ( call :fail 38 "No se encontro bridge\audiar-bridge.lua." & exit /b 38 )
 
-if not defined REPO_DIR (
-  call :fail 33 "No se encontro la carpeta AUDIAR-main despues de descomprimir."
-  exit /b 33
-)
-
-if not exist "%REPO_DIR%\bridge\package.json" (
-  call :fail 34 "No se encontro bridge\package.json."
-  exit /b 34
-)
-if not exist "%REPO_DIR%\bridge\index.ts" (
-  call :fail 35 "No se encontro bridge\index.ts."
-  exit /b 35
-)
-if not exist "%REPO_DIR%\bridge\download-server.ts" (
-  call :fail 36 "No se encontro bridge\download-server.ts."
-  exit /b 36
-)
-if not exist "%REPO_DIR%\bridge\start.ts" (
-  call :fail 37 "No se encontro bridge\start.ts."
-  exit /b 37
-)
-if not exist "%REPO_DIR%\bridge\audiar-bridge.lua" (
-  call :fail 38 "No se encontro bridge\audiar-bridge.lua."
-  exit /b 38
-)
-
-rem --- Reemplazar la copia local por la version actual del repositorio ---
 echo.
 echo Actualizando AUDIAR REAPER Bridge...
 if exist "%INSTALL_DIR%" rmdir /s /q "%INSTALL_DIR%"
 mkdir "%INSTALL_DIR%" >nul 2>&1
 xcopy "%REPO_DIR%\bridge\*" "%INSTALL_DIR%\" /E /I /Y >nul
-if errorlevel 1 (
-  call :fail 40 "No se pudieron copiar los archivos del Bridge."
-  exit /b 40
-)
-
+if errorlevel 1 ( call :fail 40 "No se pudieron copiar los archivos del Bridge." & exit /b 40 )
 cd /d "%INSTALL_DIR%"
 
 echo Instalando dependencias npm...
 call "%ProgramFiles%\nodejs\npm.cmd" install
-if errorlevel 1 (
-  call :fail 41 "npm install fallo. Revisa el registro: %LOG%"
-  exit /b 41
-)
+if errorlevel 1 ( call :fail 41 "npm install fallo. Revisa el registro: %LOG%" & exit /b 41 )
 
-rem --- Instalar ReaScript actualizado ---
 echo.
 echo Actualizando script de REAPER...
 mkdir "%REAPER_SCRIPTS%" >nul 2>&1
 copy /Y "%INSTALL_DIR%\audiar-bridge.lua" "%REAPER_SCRIPTS%\audiar-bridge.lua" >nul
-if errorlevel 1 (
-  call :fail 51 "No se pudo copiar el ReaScript a la carpeta de REAPER."
-  exit /b 51
-)
+if errorlevel 1 ( call :fail 51 "No se pudo copiar el ReaScript a la carpeta de REAPER." & exit /b 51 )
 
-rem --- Crear lanzador unico: Bridge 8765 + Download Server 8766 ---
 (
   echo @echo off
   echo title AUDIAR REAPER Bridge
@@ -223,8 +160,8 @@ rem --- Crear lanzador unico: Bridge 8765 + Download Server 8766 ---
   echo echo.
   echo echo ============================================================
   echo echo AUDIAR REAPER Bridge
-  echo echo REAPER Bridge:       http://localhost:8765
-  echo echo Servidor descargas:  http://localhost:8766
+  echo echo REAPER Bridge: http://localhost:8765
+  echo echo Almacenamiento de audio: carpeta elegida por el usuario
   echo echo Deja esta ventana abierta mientras uses AUDIAR.
   echo echo ============================================================
   echo echo.
@@ -233,11 +170,7 @@ rem --- Crear lanzador unico: Bridge 8765 + Download Server 8766 ---
   echo echo El Bridge termino. Presiona una tecla para cerrar.
   echo pause
 ) > "%LAUNCHER%"
-
-if not exist "%LAUNCHER%" (
-  call :fail 60 "No se pudo crear el lanzador del Bridge."
-  exit /b 60
-)
+if not exist "%LAUNCHER%" ( call :fail 60 "No se pudo crear el lanzador del Bridge." & exit /b 60 )
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ws=New-Object -ComObject WScript.Shell; $sc=$ws.CreateShortcut([Environment]::GetFolderPath('Desktop')+'\AUDIAR REAPER Bridge.lnk'); $sc.TargetPath='%LAUNCHER%'; $sc.WorkingDirectory='%INSTALL_DIR%'; $sc.IconLocation='%SystemRoot%\System32\SHELL32.dll,137'; $sc.Save()"
@@ -245,13 +178,10 @@ if errorlevel 1 (
   echo AVISO: no se pudo crear el acceso directo. El Bridge igualmente quedo instalado.
   >> "%LOG%" echo [AUDIAR] Aviso: no se pudo crear acceso directo.
 )
-
 if exist "%REPO_DIR%\bridge\README.md" copy /Y "%REPO_DIR%\bridge\README.md" "%INSTALL_DIR%\README.md" >nul
-
 del /q "%ZIP_FILE%" >nul 2>&1
 del /q "%NODE_MSI%" >nul 2>&1
 rmdir /s /q "%EXTRACT_DIR%" >nul 2>&1
-
 >> "%LOG%" echo [AUDIAR] Instalacion/actualizacion completada %date% %time%
 exit /b 0
 
