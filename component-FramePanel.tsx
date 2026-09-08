@@ -14,6 +14,7 @@ type FreesoundItem = Awaited<ReturnType<typeof searchFreesoundDiverse>>[number];
 interface Props {
   apiKeys: ApiKeys;
   onDesignGenerated: (layers: Partial<Record<SoundtrackElement, Layer[]>>) => void;
+  onSceneNameChange: (name: string) => void;
 }
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -80,10 +81,11 @@ function fallbackQueries(query: string): string[] {
   return [...new Set(variants)].filter(Boolean);
 }
 
-export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
+export function FramePanel({ apiKeys, onDesignGenerated, onSceneNameChange }: Props) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [sceneName, setSceneName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const generationPageRef = useRef(0);
   const [analyzing, setAnalyzing] = useState(false);
@@ -95,6 +97,11 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
       if (imageUrl) URL.revokeObjectURL(imageUrl);
     };
   }, [imageUrl]);
+
+  function handleSceneNameChange(value: string) {
+    setSceneName(value);
+    onSceneNameChange(value);
+  }
 
   function handleFile(file: File | undefined) {
     if (!file) return;
@@ -111,6 +118,7 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
     setImageFile(file);
     setFileName(file.name);
     setAnalysisError(null);
+    handleSceneNameChange("");
   }
 
   function handleRemove() {
@@ -120,6 +128,8 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
     });
     setImageFile(null);
     setFileName(null);
+    setSceneName("");
+    onSceneNameChange("");
     setUploadError(null);
     setAnalysisError(null);
     if (inputRef.current) inputRef.current.value = "";
@@ -221,6 +231,21 @@ export function FramePanel({ apiKeys, onDesignGenerated }: Props) {
 
       {imageUrl && (
         <div className="frame-panel__analysis-zone">
+          <label className="frame-panel__scene-name-label" htmlFor="scene-name">
+            Nombre de la escena <span>(opcional)</span>
+          </label>
+          <input
+            id="scene-name"
+            className="frame-panel__scene-name"
+            type="text"
+            value={sceneName}
+            onChange={(e) => handleSceneNameChange(e.target.value)}
+            placeholder="Ej.: EXT. PLAZA — NOCHE"
+            maxLength={80}
+          />
+          <p className="frame-panel__scene-name-help">
+            Se usará en la carpeta de descarga. Si lo dejás vacío, se conserva "GRUPO 01 - Escena 01".
+          </p>
           <button className="frame-panel__analyze-btn" onClick={handleAnalyze} disabled={analyzing}>
             {analyzing ? "Analizando y componiendo..." : "Analizar y componer"}
           </button>
