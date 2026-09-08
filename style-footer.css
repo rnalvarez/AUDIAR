@@ -1,0 +1,44 @@
+.app__footer {
+  margin-top: 24px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.app__footer-credit {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.app__footer-credit strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.app__footer-legal {
+  max-width: 980px;
+  margin: 6px auto 0;
+}
+
+.app__footer a,
+.layer-strip__license-link {
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 2px;
+}
+
+.app__footer a:hover,
+.layer-strip__license-link:hover {
+  color: var(--cyan);
+  text-decoration-color: var(--cyan);
+}
+
+.layer-strip__license-link {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
