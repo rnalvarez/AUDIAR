@@ -8,21 +8,24 @@ import {
 
 type SendState = "idle" | "connecting" | "sent" | "not-found" | "error";
 
+type QueueDownloadOptions = { deferStart?: boolean };
+
 interface Props {
   selectedLayers: { layer: Layer; element: SoundtrackElement }[];
   onSent: () => void;
-  onDownloadQueued: (sounds: SendableSound[]) => Promise<void>;
+  onDownloadQueued: (sounds: SendableSound[], options?: QueueDownloadOptions) => Promise<string>;
+  onDownloadStart: (batchId: string) => void;
 }
 
 const LABEL: Record<SendState, string> = {
   idle: "Enviar selección a REAPER",
-  connecting: "Enviando al bridge...",
+  connecting: "Preparando y enviando...",
   sent: "Enviado · esperando a REAPER ✓",
   "not-found": "No se encontró REAPER Bridge",
   error: "No se pudo enviar",
 };
 
-export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued }: Props) {
+export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued, onDownloadStart }: Props) {
   const [state, setState] = useState<SendState>("idle");
   const [downloadQueued, setDownloadQueued] = useState(false);
 
@@ -32,25 +35,32 @@ export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued }: P
   async function handleSend() {
     const sounds = selectedLayers.map(({ layer, element }) => layerToSendableSound(layer, element));
     setState("connecting");
+    let batchId: string | null = null;
 
     try {
-      // La misma selección que se envía a REAPER queda además archivada
-      // en el siguiente grupo de escena de la cola de descargas.
-      await onDownloadQueued(sounds);
-      setDownloadQueued(true);
+      // Primero creamos la carpeta y dejamos el lote en espera. Esto permite
+      // abrir el selector de carpeta desde el clic del usuario y, a la vez,
+      // evita que la descarga al directorio empiece antes que REAPER Bridge.
+      batchId = await onDownloadQueued(sounds, { deferStart: true });
 
       const result = await sendToReaperBridge(sounds);
       if (result.ok) {
+        // El Bridge ya dejó el audio en su caché compartida. La descarga al
+        // directorio usa esa misma copia y no vuelve a consultar Freesound.
+        onDownloadStart(batchId);
+        setDownloadQueued(true);
         setState("sent");
         onSent();
-      } else if (result.notFound) {
-        setState("not-found");
       } else {
-        setState("error");
+        // Aunque REAPER no esté disponible, conservamos la descarga manual.
+        onDownloadStart(batchId);
+        setDownloadQueued(true);
+        setState(result.notFound ? "not-found" : "error");
       }
     } catch (error) {
+      if (batchId) onDownloadStart(batchId);
       setState("error");
-      console.error("[AUDIAR] No se pudo crear el grupo para REAPER:", error);
+      console.error("[AUDIAR] No se pudo preparar el envío:", error);
     }
   }
 
