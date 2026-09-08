@@ -3,6 +3,7 @@ import type { FreesoundResultItem, Layer, SoundtrackElement } from "./types";
 import { searchFreesoundDiverse } from "./scene-freesound";
 import { layerToSendableSound, sendToReaperBridge } from "./reaper-bridge";
 import type { ApiKeys } from "./api-keys";
+import { stopAllAudioPreviews } from "./audio-preview-control";
 
 interface Props {
   layer: Layer;
@@ -67,6 +68,7 @@ export function LayerStrip({ layer, element, selected, otherSoloActive, onToggle
   useEffect(() => { const panner = pannerRef.current; if (panner) panner.pan.value = layer.pan; }, [layer.pan]);
 
   async function handleSendToReaper() {
+    stopAllAudioPreviews();
     setSendState("connecting");
     const result = await sendToReaperBridge([layerToSendableSound(layer, element)]);
     if (result.ok) setSendState("sent"); else if (result.notFound) setSendState("not-found"); else setSendState("error");
