@@ -53,10 +53,12 @@ export function DownloadQueue({
   batches,
   onCancelBatch,
   onCancelItem,
+  onImportBatch,
 }: {
   batches: DownloadBatch[];
   onCancelBatch: (batchId: string) => void;
   onCancelItem: (batchId: string, itemId: string) => void;
+  onImportBatch: (batchId: string) => void;
 }) {
   const active = batches.filter((batch) => batch.state === "downloading").length;
   const queued = batches.filter((batch) => batch.state === "queued").length;
@@ -74,6 +76,7 @@ export function DownloadQueue({
           <div className="download-queue__body">
             {batches.map((batch) => {
               const progressPercent = batch.progress.totalBytes > 0 ? Math.min(100, (batch.progress.downloadedBytes / batch.progress.totalBytes) * 100) : batch.progress.total > 0 ? (batch.progress.current / batch.progress.total) * 100 : 0;
+              const canImport = batch.state === "done" && batch.progress.failed === 0 && batch.progress.cancelled === 0;
               return (
                 <details className={`download-batch download-batch--${batch.state}`} key={batch.id} open={batch.state === "downloading" || batch.state === "queued"}>
                   <summary className="download-batch__summary">
@@ -84,6 +87,7 @@ export function DownloadQueue({
                     <div className="download-batch__topline">
                       <div className="download-batch__meter" aria-label="Progreso de descarga"><span style={{ width: `${progressPercent}%` }} /></div>
                       {(batch.state === "queued" || batch.state === "downloading") && <button type="button" className="download-batch__cancel" onClick={() => onCancelBatch(batch.id)}>Cancelar grupo</button>}
+                      {canImport && <button type="button" className="download-batch__import" onClick={() => onImportBatch(batch.id)}>Importar grupo a REAPER</button>}
                     </div>
                     <div className="download-batch__stats">
                       <span>{batch.progress.current}/{batch.progress.total} archivos</span>
