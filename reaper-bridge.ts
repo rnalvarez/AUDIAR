@@ -63,10 +63,16 @@ export type SendResult =
   | { ok: false; notFound: true; error?: string }
   | { ok: false; notFound: false; error: string };
 
+export async function getDownloadRootStatus(): Promise<DownloadRootHandle | null> {
+  const res = await fetch(`${BRIDGE_URL}/storage/status`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.configured) return null;
+  return { handle: null, name: String(data.name ?? "") };
+}
+
 export async function getOrChooseDownloadRoot(): Promise<DownloadRootHandle> {
-  const statusRes = await fetch(`${BRIDGE_URL}/storage/status`);
-  const status = await statusRes.json().catch(() => ({}));
-  if (statusRes.ok && status?.configured) return { handle: null, name: String(status.name ?? "") };
+  const status = await getDownloadRootStatus();
+  if (status) return status;
 
   const chooseRes = await fetch(`${BRIDGE_URL}/storage/choose`, { method: "POST" });
   const chooseData = await chooseRes.json().catch(() => ({}));
