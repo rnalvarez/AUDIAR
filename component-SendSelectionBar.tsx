@@ -1,14 +1,15 @@
 import { useState } from "react";
 import type { Layer, SoundtrackElement } from "./types";
-import { layerToSendableSound, sendToReaperBridge } from "./reaper-bridge";
+import { layerToSendableSound, sendToReaperBridge, type SendableSound } from "./reaper-bridge";
 
 type SendState = "idle" | "connecting" | "sent" | "not-found" | "error";
 
 interface Props {
   selectedLayers: { layer: Layer; element: SoundtrackElement }[];
   onSent: () => void;
-  onDownloadQueued: (sounds: ReturnType<typeof layerToSendableSound>[]) => Promise<string>;
+  onDownloadQueued: (sounds: SendableSound[]) => Promise<string>;
   sceneName: string;
+  onEnsureSceneGroup: () => Promise<{ groupName: string }>;
 }
 
 const LABEL: Record<SendState, string> = {
@@ -19,9 +20,9 @@ const LABEL: Record<SendState, string> = {
   error: "No se pudo enviar",
 };
 
-export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued, sceneName }: Props) {
+export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued, sceneName, onEnsureSceneGroup }: Props) {
   const [state, setState] = useState<SendState>("idle");
-  const [downloadQueued, setDownloadQueued] = useState(false);
+  const [savedStatus, setSavedStatus] = useState(false);
   const hasSelection = selectedLayers.length > 0;
   if (!hasSelection) return null;
 
@@ -29,8 +30,9 @@ export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued, sce
     const sounds = selectedLayers.map(({ layer, element }) => layerToSendableSound(layer, element));
     setState("connecting");
     try {
-      const result = await sendToReaperBridge(sounds, sceneName);
-      setDownloadQueued(Boolean(result.ok));
+      const group = await onEnsureSceneGroup();
+      const result = await sendToReaperBridge(sounds, sceneName, group.groupName);
+      setSavedStatus(Boolean(result.ok));
       if (result.ok) {
         setState("sent");
         onSent();
@@ -48,18 +50,16 @@ export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued, sce
     if (!sounds.length) return;
     try {
       await onDownloadQueued(sounds);
-      setDownloadQueued(true);
-      window.setTimeout(() => setDownloadQueued(false), 4500);
-    } catch {
-      // El componente padre muestra el error correspondiente.
-    }
+      setSavedStatus(true);
+      window.setTimeout(() => setSavedStatus(false), 4500);
+    } catch {}
   }
 
   return (
     <div className="send-selection-bar">
       <div className="send-selection-bar__info">
         <span className="send-selection-bar__count">{selectedLayers.length} sonido(s) seleccionado(s)</span>
-        {downloadQueued && <span className="send-selection-bar__download-status is-done">Guardado en la carpeta de escena</span>}
+        {savedStatus && <span className="send-selection-bar__download-status is-done">Guardado en la carpeta de escena</span>}
       </div>
       <div className="send-selection-bar__actions">
         <button className="send-selection-bar__btn send-selection-bar__download-btn" onClick={() => void handleDownloadAll()}>Descargar todo</button>
