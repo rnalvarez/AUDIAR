@@ -1,6 +1,6 @@
 import type { SendableSound, DownloadItemState, DownloadProgress } from "./reaper-bridge";
 
-export type DownloadBatchState = "queued" | "downloading" | "done" | "error";
+export type DownloadBatchState = "queued" | "downloading" | "done" | "error" | "cancelled";
 
 export interface DownloadBatch {
   id: string;
@@ -33,24 +33,35 @@ function batchStatus(state: DownloadBatchState): string {
   if (state === "queued") return "En cola";
   if (state === "downloading") return "Descargando";
   if (state === "done") return "Completado";
+  if (state === "cancelled") return "Cancelado";
   return "Con errores";
 }
 function itemStatus(item: DownloadItemState): string {
   if (item.state === "queued") return "En cola";
   if (item.state === "downloading") return "Descargando";
   if (item.state === "done") return "Listo";
+  if (item.state === "cancelled") return "Cancelado";
   return "Error";
 }
 
 export function makeInitialDownloadProgress(sounds: SendableSound[]): DownloadProgress {
   const totalBytes = sounds.reduce((sum, sound) => sum + (sound.fileSize ?? 0), 0);
-  return { current: 0, total: sounds.length, failed: 0, downloadedBytes: 0, totalBytes, remainingBytes: totalBytes, speedBytesPerSecond: 0, active: 0, items: sounds.map((sound) => ({ id: sound.id, name: sound.name, state: "queued", loadedBytes: 0, totalBytes: sound.fileSize ?? 0, speedBytesPerSecond: 0 })) };
+  return { current: 0, total: sounds.length, failed: 0, cancelled: 0, downloadedBytes: 0, totalBytes, remainingBytes: totalBytes, speedBytesPerSecond: 0, active: 0, items: sounds.map((sound) => ({ id: sound.id, name: sound.name, state: "queued", loadedBytes: 0, totalBytes: sound.fileSize ?? 0, speedBytesPerSecond: 0 })) };
 }
 
-export function DownloadQueue({ batches }: { batches: DownloadBatch[] }) {
+export function DownloadQueue({
+  batches,
+  onCancelBatch,
+  onCancelItem,
+}: {
+  batches: DownloadBatch[];
+  onCancelBatch: (batchId: string) => void;
+  onCancelItem: (batchId: string, itemId: string) => void;
+}) {
   const active = batches.filter((batch) => batch.state === "downloading").length;
   const queued = batches.filter((batch) => batch.state === "queued").length;
   const completed = batches.filter((batch) => batch.state === "done").length;
+  const cancelled = batches.filter((batch) => batch.state === "cancelled").length;
 
   return (
     <section className="download-queue">
@@ -58,7 +69,7 @@ export function DownloadQueue({ batches }: { batches: DownloadBatch[] }) {
         <details open>
           <summary>
             <span className="download-queue__title">Cola de descargas</span>
-            <span className="download-queue__summary-stats">{active > 0 ? `${active} activa${active > 1 ? "s" : ""}` : "sin actividad"}{queued > 0 ? ` · ${queued} en cola` : ""}{completed > 0 ? ` · ${completed} completada${completed > 1 ? "s" : ""}` : ""}</span>
+            <span className="download-queue__summary-stats">{active > 0 ? `${active} activa${active > 1 ? "s" : ""}` : "sin actividad"}{queued > 0 ? ` · ${queued} en cola` : ""}{completed > 0 ? ` · ${completed} completada${completed > 1 ? "s" : ""}` : ""}{cancelled > 0 ? ` · ${cancelled} cancelada${cancelled > 1 ? "s" : ""}` : ""}</span>
           </summary>
           <div className="download-queue__body">
             {batches.map((batch) => {
@@ -70,7 +81,10 @@ export function DownloadQueue({ batches }: { batches: DownloadBatch[] }) {
                     <span className="download-batch__state">{batchStatus(batch.state)}</span>
                   </summary>
                   <div className="download-batch__body">
-                    <div className="download-batch__meter" aria-label="Progreso de descarga"><span style={{ width: `${progressPercent}%` }} /></div>
+                    <div className="download-batch__topline">
+                      <div className="download-batch__meter" aria-label="Progreso de descarga"><span style={{ width: `${progressPercent}%` }} /></div>
+                      {(batch.state === "queued" || batch.state === "downloading") && <button type="button" className="download-batch__cancel" onClick={() => onCancelBatch(batch.id)}>Cancelar grupo</button>}
+                    </div>
                     <div className="download-batch__stats">
                       <span>{batch.progress.current}/{batch.progress.total} archivos</span>
                       <span>{formatBytes(batch.progress.downloadedBytes)} / {formatBytes(batch.progress.totalBytes)}</span>
@@ -90,6 +104,7 @@ export function DownloadQueue({ batches }: { batches: DownloadBatch[] }) {
                             <div className="download-file__status">{itemStatus(item)}</div>
                             <div className="download-file__size">{formatBytes(item.loadedBytes)}{total > 0 ? ` / ${formatBytes(total)}` : ""}</div>
                             <div className="download-file__speed">{formatSpeed(item.speedBytesPerSecond)}</div>
+                            {(item.state === "queued" || item.state === "downloading") && <button type="button" className="download-file__cancel" onClick={() => onCancelItem(batch.id, item.id)} aria-label={`Cancelar ${item.name}`}>Cancelar</button>}
                           </div>
                         );
                       })}
