@@ -6,7 +6,7 @@ import { FramePanel } from "./component-FramePanel";
 import { SoundtrackPanel } from "./component-SoundtrackPanel";
 import { SendSelectionBar } from "./component-SendSelectionBar";
 import { DownloadQueue, makeInitialDownloadProgress, type DownloadBatch } from "./component-DownloadQueue";
-import { downloadSoundsToDirectory, layerToSendableSound, type SendableSound } from "./reaper-bridge";
+import { createSceneGroupDirectory, downloadSoundsToDirectory, getOrChooseDownloadRoot, type SendableSound } from "./reaper-bridge";
 
 type LayersByElement = Record<SoundtrackElement, Layer[]>;
 const emptyLayers = (): LayersByElement => ({ ambientes: [], efectos: [], foley: [] });
@@ -17,7 +17,6 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [downloadQueue, setDownloadQueue] = useState<DownloadBatch[]>([]);
   const activeBatchRef = useRef<string | null>(null);
-  const groupCounterRef = useRef(1);
 
   function handleSaveApiKeys(keys: ApiKeys) {
     setApiKeys(keys);
@@ -58,20 +57,15 @@ export default function App() {
 
   async function enqueueDownloadBatch(sounds: SendableSound[]) {
     if (!sounds.length) return;
-    const picker = (window as any).showDirectoryPicker;
-    if (typeof picker !== "function") {
-      window.alert("La selección de carpetas requiere Chrome o Edge actualizado.");
-      return;
-    }
 
     try {
-      const directoryHandle = await picker({ mode: "readwrite" });
-      const groupNumber = groupCounterRef.current++;
+      const root = await getOrChooseDownloadRoot();
+      const group = await createSceneGroupDirectory(root.handle);
       const batch: DownloadBatch = {
         id: `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        title: `Grupo ${String(groupNumber).padStart(2, "0")}`,
-        folderName: directoryHandle.name ?? "Carpeta seleccionada",
-        directoryHandle,
+        title: group.name,
+        folderName: root.name,
+        directoryHandle: group.handle,
         sounds,
         state: "queued",
         progress: makeInitialDownloadProgress(sounds),
@@ -80,8 +74,9 @@ export default function App() {
       setDownloadQueue((prev) => [...prev, batch]);
     } catch (error: any) {
       if (error?.name !== "AbortError") {
-        window.alert(error instanceof Error ? error.message : "No se pudo seleccionar la carpeta.");
+        window.alert(error instanceof Error ? error.message : "No se pudo seleccionar la carpeta raíz.");
       }
+      throw error;
     }
   }
 
@@ -115,7 +110,7 @@ export default function App() {
           state: result.failed > 0 ? "error" : "done",
           progress: {
             ...batch.progress,
-            current: result.completed,
+            current: result.completed + result.failed,
             total: nextBatch.sounds.length,
             failed: result.failed,
           },
@@ -153,9 +148,7 @@ export default function App() {
       <SendSelectionBar
         selectedLayers={selectedLayers}
         onSent={() => setSelectedIds(new Set())}
-        onDownloadQueued={async (sounds) => {
-          await enqueueDownloadBatch(sounds);
-        }}
+        onDownloadQueued={enqueueDownloadBatch}
       />
 
       {downloadQueue.length > 0 && (
