@@ -2,7 +2,9 @@
 --
 -- Corre DENTRO de REAPER, en loop (reaper.defer), y revisa la carpeta de
 -- trabajos que escribe bridge/index.ts. Cada sonido se inserta en SU PROPIA
--- PISTA, con color según categoría.
+-- PISTA, con color según categoría. Todos los jobs pendientes del mismo
+-- ciclo de polling se consideran un único bloque y comparten el mismo
+-- timecode de inserción.
 
 local SEP = package.config:sub(1, 1)
 local resource_path = reaper.GetResourcePath()
@@ -54,10 +56,8 @@ local function normalizePath(value)
 end
 
 -- Comprueba si REAPER ya tiene exactamente este archivo en este timecode.
--- La comparación se hace por ruta del source + posición, de modo que:
---   * el mismo sonido en otro timecode SÍ se puede insertar;
---   * el mismo sonido dos veces en el mismo timecode NO se duplica;
---   * tampoco se duplica dos veces dentro del mismo job.
+-- El mismo sonido puede volver a insertarse en otro timecode, pero no se
+-- duplica en la misma posición.
 local function mediaItemExistsAtPosition(soundPath, insertPosition)
   local wanted = normalizePath(soundPath)
   for trackIndex = 0, reaper.CountTracks(0) - 1 do
@@ -91,9 +91,9 @@ local function insertSound(sound, insertPosition)
 
     local track = createTrack(sound)
 
-    -- Importar con la función nativa de REAPER evita crear el MediaItem a mano.
-    -- Así REAPER trata el archivo como una importación normal y puede generar
-    -- los peaks/forma de onda igual que cuando se arrastra o importa manualmente.
+    -- Importación nativa de REAPER para conservar la generación normal de peaks.
+    -- Se recoloca el cursor ANTES de cada importación para que InsertMedia no
+    -- arrastre al siguiente sonido a una posición posterior.
     reaper.SetOnlyTrackSelected(track)
     reaper.SetEditCurPos(insertPosition, false, false)
     reaper.InsertMedia(sound.path, 0)
@@ -141,38 +141,60 @@ local function listJobFiles()
   return files
 end
 
-local function processJobFile(filename)
+local function loadJob(filename)
   local fullPath = JOBS_DIR .. SEP .. filename
   local chunk, loadErr = loadfile(fullPath)
   if not chunk then
     log("No se pudo leer el trabajo " .. filename .. ": " .. tostring(loadErr))
     os.remove(fullPath)
-    return
+    return nil
   end
 
   local ok, job = pcall(chunk)
   if not ok or type(job) ~= "table" then
     log("Trabajo con formato inválido: " .. filename)
     os.remove(fullPath)
-    return
+    return nil
   end
 
-  -- El punto de inserción es el cursor de edición actual de REAPER.
-  -- Se captura una sola vez para que todos los sonidos del mismo envío
-  -- queden alineados en exactamente la misma posición.
+  os.remove(fullPath)
+  return job
+end
+
+local function processPendingJobs()
+  local files = listJobFiles()
+  if #files == 0 then return end
+
+  -- MUY IMPORTANTE: todos los jobs pendientes se reúnen antes de capturar
+  -- el cursor. Así, aunque el Bridge haya escrito un .lua por sonido,
+  -- todos los archivos de un mismo envío quedan verticalmente alineados.
   local insertPosition = reaper.GetCursorPosition()
+  local sounds = {}
+
+  for _, filename in ipairs(files) do
+    local job = loadJob(filename)
+    if job then
+      for _, sound in ipairs(job) do
+        table.insert(sounds, sound)
+      end
+    end
+  end
+
+  if #sounds == 0 then return end
 
   reaper.Undo_BeginBlock()
   reaper.PreventUIRefresh(1)
-  for _, sound in ipairs(job) do
+
+  for _, sound in ipairs(sounds) do
     insertSound(sound, insertPosition)
   end
+
   reaper.PreventUIRefresh(-1)
-  reaper.Undo_EndBlock("AUDIAR: insertar sonidos enviados", -1)
+  reaper.SetEditCurPos(insertPosition, false, false)
+  reaper.Undo_EndBlock("AUDIAR: insertar bloque de sonidos", -1)
   reaper.UpdateArrange()
 
-  os.remove(fullPath)
-  log("Procesado: " .. filename .. " (" .. #job .. " sonido/s) en " .. string.format("%.3f s", insertPosition))
+  log("Procesados " .. tostring(#sounds) .. " sonido/s como bloque en " .. string.format("%.3f s", insertPosition))
 end
 
 local function ensureJobsDir()
@@ -184,9 +206,7 @@ local function poll()
   local now = reaper.time_precise()
   if now - lastPollTime >= POLL_INTERVAL_SEC then
     lastPollTime = now
-    for _, fn in ipairs(listJobFiles()) do
-      processJobFile(fn)
-    end
+    processPendingJobs()
   end
   reaper.defer(poll)
 end
