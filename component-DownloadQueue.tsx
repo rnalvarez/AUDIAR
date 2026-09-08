@@ -1,6 +1,6 @@
 import type { SendableSound, DownloadItemProgress, DownloadProgress } from "./reaper-bridge";
 
-export type DownloadBatchState = "queued" | "downloading" | "done" | "error";
+export type DownloadBatchState = "waiting" | "queued" | "downloading" | "done" | "error";
 
 export interface DownloadBatch {
   id: string;
@@ -36,6 +36,7 @@ function formatEta(seconds: number | undefined): string {
 }
 
 function batchStatus(state: DownloadBatchState): string {
+  if (state === "waiting") return "Esperando a REAPER";
   if (state === "queued") return "En cola";
   if (state === "downloading") return "Descargando";
   if (state === "done") return "Completado";
@@ -79,7 +80,7 @@ export function DownloadQueue({
   onClearCompleted: () => void;
 }) {
   const active = batches.filter((batch) => batch.state === "downloading").length;
-  const queued = batches.filter((batch) => batch.state === "queued").length;
+  const queued = batches.filter((batch) => batch.state === "queued" || batch.state === "waiting").length;
   const completed = batches.filter((batch) => batch.state === "done").length;
 
   return (
@@ -107,7 +108,7 @@ export function DownloadQueue({
                 <details
                   className={`download-batch download-batch--${batch.state}`}
                   key={batch.id}
-                  open={batch.state === "downloading" || batch.state === "queued"}
+                  open={batch.state === "downloading" || batch.state === "queued" || batch.state === "waiting"}
                 >
                   <summary className="download-batch__summary">
                     <span>
@@ -130,6 +131,11 @@ export function DownloadQueue({
                       <span>ETA {formatEta(batch.progress.etaSeconds)}</span>
                     </div>
 
+                    {batch.state === "waiting" && !batch.error && (
+                      <div className="download-batch__waiting">
+                        REAPER está preparando los archivos; después se copiarán desde la caché compartida.
+                      </div>
+                    )}
                     {batch.error && <div className="download-batch__error">{batch.error}</div>}
 
                     <div className="download-files">
