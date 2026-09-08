@@ -83,13 +83,100 @@ function safeDownloadFilename(sound: SendableSound): string {
     .slice(0, 180) || `sound-${sound.freesoundId ?? sound.id}`;
 }
 
+export type DownloadItemState = "queued" | "downloading" | "done" | "error";
+
+export interface DownloadItemProgress {
+  id: string;
+  name: string;
+  state: DownloadItemState;
+  loadedBytes: number;
+  totalBytes: number;
+  speedBytesPerSecond: number;
+  error?: string;
+}
+
 export interface DownloadProgress {
   current: number;
   total: number;
   failed: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  remainingBytes: number;
+  speedBytesPerSecond: number;
+  etaSeconds?: number;
+  active: number;
+  items: DownloadItemProgress[];
 }
 
-async function downloadOneToDirectory(sound: SendableSound, directoryHandle: any, usedNames: Set<string>): Promise<void> {
+function createInitialProgress(sounds: SendableSound[]): DownloadProgress {
+  const totalBytes = sounds.reduce((sum, sound) => sum + (sound.fileSize ?? 0), 0);
+  return {
+    current: 0,
+    total: sounds.length,
+    failed: 0,
+    downloadedBytes: 0,
+    totalBytes,
+    remainingBytes: totalBytes,
+    speedBytesPerSecond: 0,
+    active: 0,
+    items: sounds.map((sound) => ({
+      id: sound.id,
+      name: sound.name,
+      state: "queued",
+      loadedBytes: 0,
+      totalBytes: sound.fileSize ?? 0,
+      speedBytesPerSecond: 0,
+    })),
+  };
+}
+
+function contentLength(response: Response): number {
+  const value = Number(response.headers.get("content-length") ?? 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+async function filenameExists(directoryHandle: any, filename: string): Promise<boolean> {
+  try {
+    await directoryHandle.getFileHandle(filename, { create: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveDownloadFilename(
+  sound: SendableSound,
+  directoryHandle: any,
+  usedNames: Set<string>,
+): Promise<string> {
+  const initial = safeDownloadFilename(sound);
+  const dot = initial.lastIndexOf(".");
+  const stem = dot > 0 ? initial.slice(0, dot) : initial;
+  const ext = dot > 0 ? initial.slice(dot) : "";
+
+  let filename = initial;
+  let suffix = 2;
+  while (usedNames.has(filename.toLowerCase()) || await filenameExists(directoryHandle, filename)) {
+    filename = `${stem} (${suffix})${ext}`;
+    suffix += 1;
+  }
+  usedNames.add(filename.toLowerCase());
+  return filename;
+}
+
+async function downloadOneToDirectory(
+  sound: SendableSound,
+  index: number,
+  directoryHandle: any,
+  usedNames: Set<string>,
+  progress: DownloadProgress,
+  emit: () => void,
+): Promise<void> {
+  const item = progress.items[index];
+  item.state = "downloading";
+  progress.active += 1;
+  emit();
+
   const res = await fetch(`${DOWNLOAD_BRIDGE_URL}/download`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -101,66 +188,122 @@ async function downloadOneToDirectory(sound: SendableSound, directoryHandle: any
     throw new Error(data?.error ?? `error ${res.status}`);
   }
 
-  let filename = safeDownloadFilename(sound);
-  const dot = filename.lastIndexOf(".");
-  const stem = dot > 0 ? filename.slice(0, dot) : filename;
-  const ext = dot > 0 ? filename.slice(dot) : "";
-  let suffix = 2;
-  while (usedNames.has(filename.toLowerCase())) {
-    filename = `${stem} (${suffix})${ext}`;
-    suffix += 1;
+  const responseBytes = contentLength(res);
+  if (responseBytes > 0 && item.totalBytes !== responseBytes) {
+    progress.totalBytes += responseBytes - item.totalBytes;
+    item.totalBytes = responseBytes;
   }
-  usedNames.add(filename.toLowerCase());
 
+  const filename = await resolveDownloadFilename(sound, directoryHandle, usedNames);
   const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
   const writable = await fileHandle.createWritable();
+
   try {
-    if (res.body) {
-      await res.body.pipeTo(writable);
+    if (!res.body) {
+      const blob = await res.blob();
+      await writable.write(blob);
+      item.loadedBytes = blob.size;
     } else {
-      await writable.write(await res.blob());
-      await writable.close();
+      const reader = res.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          await writable.write(value);
+          item.loadedBytes += value.byteLength;
+          emit();
+        }
+      } finally {
+        reader.releaseLock();
+      }
     }
+    await writable.close();
+    item.state = "done";
+    progress.current += 1;
   } catch (error) {
     await writable.abort().catch(() => undefined);
     throw error;
   }
 }
 
-export async function downloadSoundsToFolder(
+export async function downloadSoundsToDirectory(
   sounds: SendableSound[],
+  directoryHandle: any,
   onProgress?: (progress: DownloadProgress) => void,
 ): Promise<{ completed: number; failed: number }> {
-  const picker = (window as any).showDirectoryPicker;
-  if (typeof picker !== "function") {
-    throw new Error("La selección de carpetas requiere Chrome o Edge actualizado.");
+  const progress = createInitialProgress(sounds);
+  if (sounds.length === 0) {
+    onProgress?.(progress);
+    return { completed: 0, failed: 0 };
   }
 
-  const directoryHandle = await picker({ mode: "readwrite" });
   const usedNames = new Set<string>();
   let nextIndex = 0;
-  let completed = 0;
-  let failed = 0;
-  const workerCount = Math.min(3, sounds.length);
+  const startedAt = performance.now();
+  let lastSpeedAt = startedAt;
+  let lastSpeedBytes = 0;
+  let lastEmitAt = 0;
+
+  const emit = (force = false) => {
+    const now = performance.now();
+    progress.downloadedBytes = progress.items.reduce((sum, item) => sum + item.loadedBytes, 0);
+    progress.remainingBytes = Math.max(0, progress.totalBytes - progress.downloadedBytes);
+
+    if (now - lastSpeedAt >= 250 || force) {
+      const elapsed = (now - lastSpeedAt) / 1000;
+      const delta = progress.downloadedBytes - lastSpeedBytes;
+      if (elapsed > 0) progress.speedBytesPerSecond = Math.max(0, delta / elapsed);
+      lastSpeedAt = now;
+      lastSpeedBytes = progress.downloadedBytes;
+    }
+
+    progress.items.forEach((item) => {
+      const total = item.totalBytes || 0;
+      if (item.state === "downloading" && total > 0 && progress.speedBytesPerSecond > 0) {
+        item.speedBytesPerSecond = progress.speedBytesPerSecond;
+      } else if (item.state !== "downloading") {
+        item.speedBytesPerSecond = 0;
+      }
+    });
+
+    if (progress.speedBytesPerSecond > 0 && progress.remainingBytes > 0) {
+      progress.etaSeconds = progress.remainingBytes / progress.speedBytesPerSecond;
+    } else {
+      progress.etaSeconds = undefined;
+    }
+
+    const shouldEmit = force || now - lastEmitAt >= 100;
+    if (shouldEmit) {
+      lastEmitAt = now;
+      onProgress?.({
+        ...progress,
+        items: progress.items.map((item) => ({ ...item })),
+      });
+    }
+  };
 
   const worker = async () => {
     while (true) {
       const index = nextIndex++;
       if (index >= sounds.length) return;
       try {
-        await downloadOneToDirectory(sounds[index], directoryHandle, usedNames);
-      } catch (error) {
-        failed += 1;
-        console.error(`[AUDIAR] Error descargando ${sounds[index].name}:`, error);
+        await downloadOneToDirectory(sounds[index], index, directoryHandle, usedNames, progress, () => emit(false));
+      } catch (error: any) {
+        progress.failed += 1;
+        progress.items[index].state = "error";
+        progress.items[index].error = error?.message ?? "Error de descarga";
       } finally {
-        completed += 1;
-        onProgress?.({ current: completed, total: sounds.length, failed });
+        progress.active = Math.max(0, progress.active - 1);
+        if (progress.items[index].state === "error") progress.current += 1;
+        emit(true);
       }
     }
   };
 
+  const workerCount = Math.min(3, sounds.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return { completed, failed };
+  emit(true);
+  return { completed: progress.total - progress.failed > 0 ? sounds.length - progress.failed : 0, failed: progress.failed };
 }
 
 export async function getFreesoundOAuthStatus(): Promise<{ connected: boolean; configured: boolean; expiresAt?: number }> {
