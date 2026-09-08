@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FreesoundResultItem, Layer, SoundtrackElement } from "./types";
 import { searchFreesoundDiverse } from "./scene-freesound";
-import { layerToSendableSound, sendToReaperBridge } from "./reaper-bridge";
+import { layerToSendableSound } from "./reaper-bridge";
 import type { ApiKeys } from "./api-keys";
 import { stopAllAudioPreviews } from "./audio-preview-control";
 
@@ -16,6 +16,7 @@ interface Props {
   onAddResults: (results: FreesoundResultItem[], searchQuery?: string) => string[];
   onSelectIds: (ids: string[]) => void;
   apiKeys: ApiKeys;
+  onSendToReaper: (sound: ReturnType<typeof layerToSendableSound>) => Promise<void>;
 }
 
 type SendState = "idle" | "connecting" | "sent" | "not-found" | "error";
@@ -26,7 +27,7 @@ function extractFreesoundId(id: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
-export function LayerStrip({ layer, element, selected, otherSoloActive, onToggleSelect, onChange, onRemove, onAddResults, onSelectIds, apiKeys }: Props) {
+export function LayerStrip({ layer, element, selected, otherSoloActive, onToggleSelect, onChange, onRemove, onAddResults, onSelectIds, apiKeys, onSendToReaper }: Props) {
   const [sendState, setSendState] = useState<SendState>("idle");
   const [alternatives, setAlternatives] = useState<FreesoundResultItem[] | null>(null);
   const [searchingAlternatives, setSearchingAlternatives] = useState(false);
@@ -70,8 +71,13 @@ export function LayerStrip({ layer, element, selected, otherSoloActive, onToggle
   async function handleSendToReaper() {
     stopAllAudioPreviews();
     setSendState("connecting");
-    const result = await sendToReaperBridge([layerToSendableSound(layer, element)]);
-    if (result.ok) setSendState("sent"); else if (result.notFound) setSendState("not-found"); else setSendState("error");
+    try {
+      await onSendToReaper(layerToSendableSound(layer, element));
+      setSendState("sent");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo enviar";
+      setSendState(message.toLowerCase().includes("bridge") ? "not-found" : "error");
+    }
   }
 
   async function handleAlternatives() {
@@ -105,7 +111,7 @@ export function LayerStrip({ layer, element, selected, otherSoloActive, onToggle
     onSelectIds(addedIds); setAlternatives(null); setSelectedAlternatives(new Set());
   }
 
-  const sendLabel: Record<SendState, string> = { idle: "Enviar a REAPER", connecting: "Enviando al bridge...", sent: "Enviado · esperando a REAPER ✓", "not-found": "No se encontró REAPER Bridge", error: "No se pudo enviar" };
+  const sendLabel: Record<SendState, string> = { idle: "Enviar a REAPER", connecting: "Enviando al bridge...", sent: "Enviado al grupo ✓", "not-found": "No se encontró REAPER Bridge", error: "No se pudo enviar" };
   return (
     <div className="layer-strip">
       <div className="layer-strip__top">
@@ -129,7 +135,7 @@ export function LayerStrip({ layer, element, selected, otherSoloActive, onToggle
           {selectedAlternatives.size > 0 && <button className="layer-strip__add-selected" onClick={addSelectedAlternatives}>sumar seleccionados al diseño ({selectedAlternatives.size})</button>}
         </div>}
       </div>
-      <button className={`layer-strip__reaper-btn reaper-state-${sendState}`} onClick={handleSendToReaper} disabled={sendState === "connecting"}>{sendLabel[sendState]}</button>
+      <button className={`layer-strip__reaper-btn reaper-state-${sendState}`} onClick={() => void handleSendToReaper()} disabled={sendState === "connecting"}>{sendLabel[sendState]}</button>
     </div>
   );
 }
