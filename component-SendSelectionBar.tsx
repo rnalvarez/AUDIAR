@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Layer, SoundtrackElement } from "./types";
-import { layerToSendableSound, sendToReaperBridge, type SendableSound } from "./reaper-bridge";
+import { layerToSendableSound, type SendableSound } from "./reaper-bridge";
 import { stopAllAudioPreviews } from "./audio-preview-control";
 
 type SendState = "idle" | "connecting" | "sent" | "not-found" | "error";
@@ -9,6 +9,7 @@ interface Props {
   selectedLayers: { layer: Layer; element: SoundtrackElement }[];
   onSent: () => void;
   onDownloadQueued: (sounds: SendableSound[]) => Promise<string>;
+  onSendQueued: (sounds: SendableSound[]) => Promise<string>;
   sceneName: string;
   onEnsureSceneGroup: () => Promise<{ groupName: string }>;
 }
@@ -21,7 +22,7 @@ const LABEL: Record<SendState, string> = {
   error: "No se pudo enviar",
 };
 
-export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued, sceneName, onEnsureSceneGroup }: Props) {
+export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued, onSendQueued }: Props) {
   const [state, setState] = useState<SendState>("idle");
   const [savedStatus, setSavedStatus] = useState(false);
   const hasSelection = selectedLayers.length > 0;
@@ -33,15 +34,11 @@ export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued, sce
     stopAllAudioPreviews();
     setState("connecting");
     try {
-      const group = await onEnsureSceneGroup();
-      const result = await sendToReaperBridge(sounds, sceneName, group.groupName);
-      setSavedStatus(Boolean(result.ok));
-      if (result.ok) {
-        setState("sent");
-        onSent();
-      } else {
-        setState(result.notFound ? "not-found" : "error");
-      }
+      await onSendQueued(sounds);
+      setSavedStatus(true);
+      window.setTimeout(() => setSavedStatus(false), 4500);
+      setState("sent");
+      onSent();
     } catch (error) {
       setState("error");
       console.error("[AUDIAR] No se pudo enviar:", error);
