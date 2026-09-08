@@ -164,7 +164,7 @@ export default function App() {
         onSent={() => setSelectedIds(new Set())}
         sceneName={sceneName}
         onDownloadQueued={enqueueDownloadBatch}
-        onEnsureSceneGroup={async () => (await ensureSceneGroup()).groupName}
+        onEnsureSceneGroup={ensureSceneGroup}
       />
       {downloadQueue.length > 0 && <DownloadQueue batches={downloadQueue} onClearCompleted={clearCompletedDownloads} />}
       <div className="app__grid">
