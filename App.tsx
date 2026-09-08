@@ -18,49 +18,32 @@ export default function App() {
   const [downloadQueue, setDownloadQueue] = useState<DownloadBatch[]>([]);
   const [sceneName, setSceneName] = useState("");
   const [sceneGroupName, setSceneGroupName] = useState<string | null>(null);
+  const sceneGroupRef = useRef<string | null>(null);
   const activeBatchRef = useRef<string | null>(null);
 
   function handleSaveApiKeys(keys: ApiKeys) { setApiKeys(keys); saveApiKeys(keys); }
   function replaceLayers(next: Partial<LayersByElement>) { setLayers((prev) => ({ ...prev, ...next })); setSelectedIds(new Set()); }
-  function handleNewScene() { setSceneGroupName(null); setDownloadQueue((prev) => prev.filter((batch) => batch.state !== "queued" || batch.title !== sceneGroupName)); }
+  function handleNewScene() { sceneGroupRef.current = null; setSceneGroupName(null); }
   function toggleSelect(id: string) { setSelectedIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
   function selectIds(ids: string[]) { if (!ids.length) return; setSelectedIds((prev) => { const next = new Set(prev); ids.forEach((id) => next.add(id)); return next; }); }
   function setCategorySelection(elementId: SoundtrackElement, selectAll: boolean) { const ids = layers[elementId].map((layer) => layer.id); setSelectedIds((prev) => { const next = new Set(prev); ids.forEach((id) => (selectAll ? next.add(id) : next.delete(id))); return next; }); }
 
   async function ensureSceneGroup(): Promise<{ rootName: string; groupName: string }> {
     const root = await getOrChooseDownloadRoot();
-    if (sceneGroupName) return { rootName: root.name, groupName: sceneGroupName };
+    if (sceneGroupRef.current) return { rootName: root.name, groupName: sceneGroupRef.current };
     const group = await createSceneGroupDirectory(null, sceneName);
+    sceneGroupRef.current = group.name;
     setSceneGroupName(group.name);
     return { rootName: root.name, groupName: group.name };
   }
 
   async function enqueueDownloadBatch(sounds: SendableSound[]): Promise<string> {
     if (!sounds.length) throw new Error("No hay sonidos para descargar.");
-    try {
-      const group = await ensureSceneGroup();
-      const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const batch: DownloadBatch = {
-        id: batchId,
-        title: group.groupName,
-        folderName: group.rootName,
-        groupName: group.groupName,
-        sounds,
-        state: "queued",
-        progress: makeInitialDownloadProgress(sounds),
-        createdAt: Date.now(),
-      };
-      setDownloadQueue((prev) => [...prev, batch]);
-      return batchId;
-    } catch (error: any) {
-      if (error?.name !== "AbortError") window.alert(error instanceof Error ? error.message : "No se pudo seleccionar la carpeta raíz.");
-      throw error;
-    }
-  }
-
-  async function sendSelectionToReaper(sounds: SendableSound[]): Promise<{ groupName: string }> {
     const group = await ensureSceneGroup();
-    return { groupName: group.groupName };
+    const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const batch: DownloadBatch = { id: batchId, title: group.groupName, folderName: group.rootName, groupName: group.groupName, sounds, state: "queued", progress: makeInitialDownloadProgress(sounds), createdAt: Date.now() };
+    setDownloadQueue((prev) => [...prev, batch]);
+    return batchId;
   }
 
   function updateBatch(id: string, updater: (batch: DownloadBatch) => DownloadBatch) { setDownloadQueue((prev) => prev.map((batch) => (batch.id === id ? updater(batch) : batch))); }
@@ -89,11 +72,9 @@ export default function App() {
       <header className="app__header"><h1>AUDIAR</h1><span className="app__tagline">diseño sonoro a partir de un fotograma, en capas</span></header>
       <Settings apiKeys={apiKeys} onSave={handleSaveApiKeys} />
       <FramePanel apiKeys={apiKeys} onDesignGenerated={replaceLayers} onSceneNameChange={setSceneName} onNewScene={handleNewScene} />
-      <SendSelectionBar selectedLayers={selectedLayers} onSent={() => setSelectedIds(new Set())} sceneName={sceneName} onDownloadQueued={enqueueDownloadBatch} />
+      <SendSelectionBar selectedLayers={selectedLayers} onSent={() => setSelectedIds(new Set())} sceneName={sceneName} onDownloadQueued={enqueueDownloadBatch} onEnsureSceneGroup={async () => (await ensureSceneGroup()).groupName} />
       {downloadQueue.length > 0 && <DownloadQueue batches={downloadQueue} onClearCompleted={clearCompletedDownloads} />}
-      <div className="app__grid">
-        {ELEMENTS.map(({ id, label, hint }) => <SoundtrackPanel key={id} elementId={id} label={label} hint={hint} layers={layers[id]} onLayersChange={(next) => setLayers((prev) => ({ ...prev, [id]: next }))} apiKeys={apiKeys} selectedIds={selectedIds} onToggleSelect={toggleSelect} onSelectIds={selectIds} onSetCategorySelection={(selectAll) => setCategorySelection(id, selectAll)} globalSoloActive={globalSoloActive} />)}
-      </div>
+      <div className="app__grid">{ELEMENTS.map(({ id, label, hint }) => <SoundtrackPanel key={id} elementId={id} label={label} hint={hint} layers={layers[id]} onLayersChange={(next) => setLayers((prev) => ({ ...prev, [id]: next }))} apiKeys={apiKeys} selectedIds={selectedIds} onToggleSelect={toggleSelect} onSelectIds={selectIds} onSetCategorySelection={(selectAll) => setCategorySelection(id, selectAll)} globalSoloActive={globalSoloActive} />)}</div>
     </div>
   );
 }
