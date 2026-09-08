@@ -129,12 +129,6 @@ export default function App() {
     setDownloadQueue((prev) => prev.map((batch) => (batch.id === id ? updater(batch) : batch)));
   }
 
-  function clearCompletedDownloads() {
-    // La cola es también un historial visible de las operaciones realizadas.
-    // Las descargas completadas no deben desaparecer al pulsar este botón.
-    setDownloadQueue((prev) => [...prev]);
-  }
-
   useEffect(() => {
     if (activeBatchRef.current) return;
     const nextBatch = downloadQueue.find((batch) => batch.state === "queued");
@@ -200,7 +194,7 @@ export default function App() {
         <button type="button" className="frame-storage__change" onClick={() => void handleChangeDownloadRoot()} disabled={changingDownloadRoot}>{changingDownloadRoot ? "Seleccionando…" : "Cambiar carpeta"}</button>
       </div>
       <SendSelectionBar selectedLayers={selectedLayers} onSent={() => setSelectedIds(new Set())} sceneName={sceneName} onDownloadQueued={enqueueDownloadBatch} onSendQueued={queueSelectedSoundsForReaper} onEnsureSceneGroup={ensureSceneGroup} />
-      {downloadQueue.length > 0 && <DownloadQueue batches={downloadQueue} onClearCompleted={clearCompletedDownloads} />}
+      {downloadQueue.length > 0 && <DownloadQueue batches={downloadQueue} />}
       <div className="app__grid">
         {ELEMENTS.map(({ id, label, hint }) => <SoundtrackPanel key={id} elementId={id} label={label} hint={hint} layers={layers[id]} onLayersChange={(next: Layer[]) => setLayers((prev) => ({ ...prev, [id]: next }))} apiKeys={apiKeys} selectedIds={selectedIds} onToggleSelect={toggleSelect} onSelectIds={selectIds} onSetCategorySelection={(selectAll: boolean) => setCategorySelection(id, selectAll)} globalSoloActive={globalSoloActive} />)}
       </div>
