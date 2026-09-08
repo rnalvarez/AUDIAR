@@ -6,10 +6,11 @@ import { FramePanel } from "./component-FramePanel";
 import { SoundtrackPanel } from "./component-SoundtrackPanel";
 import { SendSelectionBar } from "./component-SendSelectionBar";
 import { DownloadQueue, makeInitialDownloadProgress, type DownloadBatch } from "./component-DownloadQueue";
-import { changeDownloadRoot, createSceneGroupDirectory, downloadSoundsToDirectory, getDownloadRootStatus, getOrChooseDownloadRoot, type SendableSound } from "./reaper-bridge";
+import { changeDownloadRoot, createSceneGroupDirectory, downloadSoundsToDirectory, getDownloadRootStatus, getOrChooseDownloadRoot, sendToReaperBridge, type SendableSound } from "./reaper-bridge";
 
 type LayersByElement = Record<SoundtrackElement, Layer[]>;
 const emptyLayers = (): LayersByElement => ({ ambientes: [], efectos: [], foley: [] });
+type BatchCompletion = () => Promise<void>;
 
 export default function App() {
   const [apiKeys, setApiKeys] = useState<ApiKeys>(() => loadApiKeys());
@@ -23,6 +24,7 @@ export default function App() {
   const sceneGroupRef = useRef<string | null>(null);
   const sceneGroupCreationRef = useRef<Promise<{ rootName: string; groupName: string }> | null>(null);
   const activeBatchRef = useRef<string | null>(null);
+  const batchCompletionRef = useRef<Map<string, BatchCompletion>>(new Map());
 
   useEffect(() => {
     void getDownloadRootStatus().then((root) => setDownloadRootName(root?.name ?? "")).catch(() => {});
@@ -104,7 +106,7 @@ export default function App() {
     return sceneGroupCreationRef.current;
   }
 
-  async function enqueueDownloadBatch(sounds: SendableSound[]): Promise<string> {
+  async function enqueueDownloadBatch(sounds: SendableSound[], onCompleted?: BatchCompletion): Promise<string> {
     if (!sounds.length) throw new Error("No hay sonidos para descargar.");
     const group = await ensureSceneGroup();
     const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -118,6 +120,7 @@ export default function App() {
       progress: makeInitialDownloadProgress(sounds),
       createdAt: Date.now(),
     };
+    if (onCompleted) batchCompletionRef.current.set(batchId, onCompleted);
     setDownloadQueue((prev) => [...prev, batch]);
     return batchId;
   }
@@ -145,13 +148,25 @@ export default function App() {
           (progress) => updateBatch(nextBatch.id, (batch) => ({ ...batch, progress })),
           nextBatch.groupName,
         );
+        const completedSuccessfully = result.failed === 0;
         updateBatch(nextBatch.id, (batch) => ({
           ...batch,
-          state: result.failed > 0 ? "error" : "done",
+          state: completedSuccessfully ? "done" : "error",
           progress: { ...batch.progress, current: result.completed + result.failed, total: nextBatch.sounds.length, failed: result.failed },
           error: result.failed > 0 ? `${result.failed} archivo(s) no pudieron descargarse.` : undefined,
         }));
+        const completion = batchCompletionRef.current.get(nextBatch.id);
+        if (completion && completedSuccessfully) {
+          try {
+            await completion();
+          } finally {
+            batchCompletionRef.current.delete(nextBatch.id);
+          }
+        } else {
+          batchCompletionRef.current.delete(nextBatch.id);
+        }
       } catch (error) {
+        batchCompletionRef.current.delete(nextBatch.id);
         updateBatch(nextBatch.id, (batch) => ({
           ...batch,
           state: "error",
@@ -162,6 +177,13 @@ export default function App() {
       }
     })();
   }, [downloadQueue]);
+
+  async function queueSelectedSoundsForReaper(sounds: SendableSound[]): Promise<string> {
+    const group = await ensureSceneGroup();
+    return enqueueDownloadBatch(sounds, async () => {
+      await sendToReaperBridge(sounds, sceneName, group.groupName);
+    });
+  }
 
   const selectedLayers = ELEMENTS.flatMap(({ id }) =>
     layers[id]
@@ -201,6 +223,7 @@ export default function App() {
         onSent={() => setSelectedIds(new Set())}
         sceneName={sceneName}
         onDownloadQueued={enqueueDownloadBatch}
+        onSendQueued={queueSelectedSoundsForReaper}
         onEnsureSceneGroup={ensureSceneGroup}
       />
       {downloadQueue.length > 0 && <DownloadQueue batches={downloadQueue} onClearCompleted={clearCompletedDownloads} />}
