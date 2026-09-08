@@ -6,7 +6,7 @@ import { FramePanel } from "./component-FramePanel";
 import { SoundtrackPanel } from "./component-SoundtrackPanel";
 import { SendSelectionBar } from "./component-SendSelectionBar";
 import { DownloadQueue, makeInitialDownloadProgress, type DownloadBatch } from "./component-DownloadQueue";
-import { changeDownloadRoot, createSceneGroupDirectory, downloadSoundsToDirectory, getOrChooseDownloadRoot, type SendableSound } from "./reaper-bridge";
+import { changeDownloadRoot, createSceneGroupDirectory, downloadSoundsToDirectory, getDownloadRootStatus, getOrChooseDownloadRoot, type SendableSound } from "./reaper-bridge";
 
 type LayersByElement = Record<SoundtrackElement, Layer[]>;
 const emptyLayers = (): LayersByElement => ({ ambientes: [], efectos: [], foley: [] });
@@ -25,7 +25,7 @@ export default function App() {
   const activeBatchRef = useRef<string | null>(null);
 
   useEffect(() => {
-    void getOrChooseDownloadRoot().then((root) => setDownloadRootName(root.name)).catch(() => {});
+    void getDownloadRootStatus().then((root) => setDownloadRootName(root?.name ?? "")).catch(() => {});
   }, []);
 
   function handleSaveApiKeys(keys: ApiKeys) {
@@ -182,11 +182,20 @@ export default function App() {
         onDesignGenerated={replaceLayers}
         onSceneNameChange={setSceneName}
         onNewScene={handleNewScene}
-        downloadRootName={downloadRootName}
-        changingDownloadRoot={changingDownloadRoot}
-        downloadRootError={downloadRootError}
-        onChangeDownloadRoot={() => void handleChangeDownloadRoot()}
       />
+      <div className="frame-storage" aria-live="polite">
+        <div className="frame-storage__main">
+          <div className="frame-storage__label">Carpeta de almacenamiento</div>
+          <div className="frame-storage__path" title={downloadRootName || "No seleccionada"}>
+            {downloadRootName || "No seleccionada"}
+          </div>
+          <div className="frame-storage__help">Los grupos y archivos nuevos se guardarán aquí.</div>
+          {downloadRootError && <div className="frame-storage__error">{downloadRootError}</div>}
+        </div>
+        <button type="button" className="frame-storage__change" onClick={() => void handleChangeDownloadRoot()} disabled={changingDownloadRoot}>
+          {changingDownloadRoot ? "Seleccionando…" : "Cambiar carpeta"}
+        </button>
+      </div>
       <SendSelectionBar
         selectedLayers={selectedLayers}
         onSent={() => setSelectedIds(new Set())}
