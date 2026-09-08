@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Layer, SoundtrackElement } from "./types";
 import { layerToSendableSound, sendToReaperBridge, type SendableSound } from "./reaper-bridge";
+import { stopAllAudioPreviews } from "./audio-preview-control";
 
 type SendState = "idle" | "connecting" | "sent" | "not-found" | "error";
 
@@ -28,6 +29,8 @@ export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued, sce
 
   async function handleSend() {
     const sounds = selectedLayers.map(({ layer, element }) => layerToSendableSound(layer, element));
+    if (!sounds.length) return;
+    stopAllAudioPreviews();
     setState("connecting");
     try {
       const group = await onEnsureSceneGroup();
@@ -48,6 +51,7 @@ export function SendSelectionBar({ selectedLayers, onSent, onDownloadQueued, sce
   async function handleDownloadAll() {
     const sounds = selectedLayers.map(({ layer, element }) => layerToSendableSound(layer, element));
     if (!sounds.length) return;
+    stopAllAudioPreviews();
     try {
       await onDownloadQueued(sounds);
       setSavedStatus(true);
