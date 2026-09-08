@@ -21,9 +21,7 @@
   padding: 10px 14px;
 }
 
-.download-queue__title {
-  font-weight: 600;
-}
+.download-queue__title { font-weight: 600; }
 
 .download-queue__summary-stats,
 .download-batch__state,
@@ -36,9 +34,7 @@
   opacity: 0.75;
 }
 
-.download-queue__body {
-  padding: 0 10px 10px;
-}
+.download-queue__body { padding: 0 10px 10px; }
 
 .download-batch {
   margin-top: 8px;
@@ -56,8 +52,13 @@
   padding: 9px 11px;
 }
 
-.download-batch__body {
-  padding: 0 11px 11px;
+.download-batch__body { padding: 0 11px 11px; }
+
+.download-batch__topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
 }
 
 .download-batch__meter,
@@ -94,9 +95,33 @@
   opacity: 0.9;
 }
 
+.download-batch__cancel,
+.download-file__cancel {
+  flex: 0 0 auto;
+  border: 1px solid rgba(220, 170, 120, 0.65);
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.download-batch__cancel:hover,
+.download-file__cancel:hover {
+  background: rgba(220, 170, 120, 0.08);
+}
+
+.download-batch__cancel:active,
+.download-file__cancel:active {
+  transform: translateY(1px);
+}
+
 .download-file {
   display: grid;
-  grid-template-columns: 8px minmax(180px, 1fr) 90px 110px 80px;
+  grid-template-columns: 8px minmax(160px, 1fr) 90px 110px 80px auto;
   align-items: center;
   gap: 8px;
   padding: 7px 0;
@@ -114,6 +139,7 @@
 .download-file__dot--downloading { opacity: 1; }
 .download-file__dot--done { opacity: 0.8; }
 .download-file__dot--error { opacity: 1; }
+.download-file__dot--cancelled { opacity: 0.45; }
 
 .download-file__name {
   overflow: hidden;
@@ -124,25 +150,9 @@
 
 .download-file__bar { margin-top: 4px; height: 3px; }
 
-.download-queue__clear {
-  margin-top: 10px;
-  padding: 6px 10px;
-  border: 1px solid var(--border, #253238);
-  border-radius: 7px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-}
-
-.download-queue__clear:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 @media (max-width: 900px) {
   .download-file {
-    grid-template-columns: 8px minmax(0, 1fr) 72px;
+    grid-template-columns: 8px minmax(0, 1fr) 72px auto;
   }
   .download-file__size,
   .download-file__speed { display: none; }
