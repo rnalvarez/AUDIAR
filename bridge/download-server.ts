@@ -1,15 +1,13 @@
 // AUDIAR — servidor local de descargas.
-// Corre junto al Bridge principal y entrega el archivo original de Freesound
-// al navegador para guardarlo en la carpeta que eligió el usuario.
+// Entrega el archivo original de Freesound al navegador y, al mismo tiempo,
+// conserva una copia en la caché local para acelerar usos posteriores.
 
 import { createServer } from "node:http";
-import { createReadStream } from "node:fs";
-import { mkdir, readFile, rename, unlink } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, readFile, rename, unlink, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { pipeline } from "node:stream/promises";
-import { createWriteStream } from "node:fs";
 import { get as httpsGet } from "node:https";
 import type { IncomingMessage } from "node:http";
 
@@ -71,7 +69,8 @@ async function loadOAuthStore(): Promise<OAuthStore> {
 
 async function saveOAuthStore(store: OAuthStore): Promise<void> {
   const tmpPath = `${OAUTH_PATH}.tmp`;
-  await import("node:fs/promises").then(({ writeFile }) => writeFile(tmpPath, JSON.stringify(store, null, 2), "utf-8"));
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(tmpPath, JSON.stringify(store, null, 2), "utf-8");
   await rename(tmpPath, OAUTH_PATH);
 }
 
@@ -137,62 +136,74 @@ function requestStream(url: string, headers: Record<string, string> = {}, redire
   });
 }
 
-async function downloadOriginal(sound: IncomingSound): Promise<{ path: string; filename: string }> {
+function safeFilename(sound: IncomingSound): string {
+  const raw = sound.originalFilename?.trim() || `${sound.name.trim() || `sound-${sound.freesoundId}`}.wav`;
+  return raw
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/[. ]+$/, "")
+    .slice(0, 180) || `sound-${sound.freesoundId}.wav`;
+}
+
+function contentType(sound: IncomingSound): string {
+  if (sound.originalType?.startsWith("audio/")) return sound.originalType;
+  if (sound.originalType) return `audio/${sound.originalType}`;
+  return "application/octet-stream";
+}
+
+async function prepareOriginal(sound: IncomingSound): Promise<{
+  filename: string;
+  localPath: string;
+  response?: IncomingMessage;
+}> {
   if (sound.source !== "freesound" || sound.freesoundId == null) {
     throw new Error("El sonido no contiene un ID válido de Freesound.");
   }
 
   const accessToken = await getValidAccessToken();
-  if (!accessToken) {
-    throw new Error("No hay una conexión OAuth válida con Freesound.");
-  }
+  if (!accessToken) throw new Error("No hay una conexión OAuth válida con Freesound.");
 
-  const originalFilename = sound.originalFilename?.trim() || `${sound.name.trim() || `sound-${sound.freesoundId}`}.wav`;
-  const filename = originalFilename
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
-    .replace(/[. ]+$/, "")
-    .slice(0, 180) || `sound-${sound.freesoundId}.wav`;
+  const filename = safeFilename(sound);
   const ext = path.extname(filename) || ".wav";
   const cacheFilename = `${sound.freesoundId}-${Buffer.from(filename).toString("base64url").slice(0, 48)}${ext.toLowerCase()}`;
   const localPath = path.join(CACHE_DIR, `download-${cacheFilename}`);
 
-  if (!existsSync(localPath)) {
-    const url = `${FREESOUND_API}/sounds/${sound.freesoundId}/download/`;
-    const response = await requestStream(url, { Authorization: `Bearer ${accessToken}` });
-    const status = response.statusCode ?? 0;
+  if (existsSync(localPath)) return { filename, localPath };
 
-    if (status === 401) {
-      response.resume();
-      const refreshed = await refreshAccessToken(await loadOAuthStore());
-      if (!refreshed.accessToken) throw new Error("No se pudo renovar la conexión con Freesound.");
-      const retry = await requestStream(url, { Authorization: `Bearer ${refreshed.accessToken}` });
-      const retryStatus = retry.statusCode ?? 0;
-      if (retryStatus < 200 || retryStatus >= 300) {
-        retry.resume();
-        throw new Error(`HTTP ${retryStatus}`);
-      }
-      await pipeline(retry, createWriteStream(`${localPath}.part`));
-    } else {
-      if (status < 200 || status >= 300) {
-        response.resume();
-        throw new Error(`HTTP ${status}`);
-      }
-      await pipeline(response, createWriteStream(`${localPath}.part`));
-    }
+  const url = `${FREESOUND_API}/sounds/${sound.freesoundId}/download/`;
+  let response = await requestStream(url, { Authorization: `Bearer ${accessToken}` });
+  let status = response.statusCode ?? 0;
 
-    await rename(`${localPath}.part`, localPath).catch(async (error) => {
-      await unlink(`${localPath}.part`).catch(() => undefined);
-      throw error;
-    });
+  if (status === 401) {
+    response.resume();
+    const refreshed = await refreshAccessToken(await loadOAuthStore());
+    if (!refreshed.accessToken) throw new Error("No se pudo renovar la conexión con Freesound.");
+    response = await requestStream(url, { Authorization: `Bearer ${refreshed.accessToken}` });
+    status = response.statusCode ?? 0;
   }
 
-  return { path: localPath, filename };
+  if (status < 200 || status >= 300) {
+    response.resume();
+    throw new Error(`HTTP ${status}`);
+  }
+
+  return { filename, localPath, response };
 }
 
 async function readJsonBody(req: import("node:http").IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
   return JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+}
+
+async function serveCached(res: import("node:http").ServerResponse, localPath: string, filename: string, sound: IncomingSound) {
+  const fileInfo = await stat(localPath);
+  res.writeHead(200, {
+    ...CORS_HEADERS,
+    "Content-Type": contentType(sound),
+    "Content-Length": String(fileInfo.size),
+    "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+  });
+  createReadStream(localPath).pipe(res);
 }
 
 const server = createServer(async (req, res) => {
@@ -215,17 +226,49 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    const local = await downloadOriginal(sound);
-    res.writeHead(200, {
+    const prepared = await prepareOriginal(sound);
+    if (!prepared.response) {
+      await serveCached(res, prepared.localPath, prepared.filename, sound);
+      return;
+    }
+
+    const upstream = prepared.response;
+    const total = Number(upstream.headers["content-length"] ?? 0);
+    const headers: Record<string, string> = {
       ...CORS_HEADERS,
-      "Content-Type": sound.originalType?.startsWith("audio/")
-        ? sound.originalType
-        : sound.originalType
-          ? `audio/${sound.originalType}`
-          : "application/octet-stream",
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(local.filename)}`,
+      "Content-Type": contentType(sound),
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(prepared.filename)}`,
+    };
+    if (Number.isFinite(total) && total > 0) headers["Content-Length"] = String(total);
+
+    res.writeHead(200, headers);
+
+    const cachePart = `${prepared.localPath}.part`;
+    const cacheStream = createWriteStream(cachePart);
+    let cacheFailed = false;
+
+    cacheStream.on("error", (error) => {
+      cacheFailed = true;
+      console.warn(`[AUDIAR Download] No se pudo guardar caché: ${error.message}`);
+      cacheStream.destroy();
     });
-    createReadStream(local.path).pipe(res);
+    cacheStream.on("finish", async () => {
+      if (cacheFailed) return;
+      try {
+        await rename(cachePart, prepared.localPath);
+      } catch (error: any) {
+        await unlink(cachePart).catch(() => undefined);
+        console.warn(`[AUDIAR Download] No se pudo finalizar caché: ${error?.message ?? error}`);
+      }
+    });
+
+    upstream.on("error", (error) => {
+      cacheStream.destroy(error);
+      if (!res.destroyed) res.destroy(error);
+    });
+
+    upstream.pipe(cacheStream);
+    upstream.pipe(res);
   } catch (error: any) {
     if (!res.headersSent) json(res, 500, { error: error?.message ?? "No se pudo descargar el archivo original." });
     else res.destroy(error);
