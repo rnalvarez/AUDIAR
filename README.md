@@ -103,7 +103,7 @@ La búsqueda automática de AUDIAR está filtrada actualmente a sonidos bajo **C
 
 La interfaz muestra la licencia de cada sonido y ofrece un enlace directo a su página en Freesound para que puedas revisar la licencia y la procedencia antes de utilizarlo.
 
-**Importante para compartir o explotar AUDIAR comercialmente:** las condiciones de la **Freesound API** establecen que su uso gratuito está destinado a fines no comerciales. Para un uso comercial de la API, Freesound indica que hay que contactar al Music Technology Group de la Universitat Pompeu Fabra para las opciones de licencia correspondientes. El hecho de que un sonido individual tenga licencia CC0 o CC BY no elimina esta condición aplicable al uso de la API. citeturn153781search0turn153781search1
+**Importante para compartir o explotar AUDIAR comercialmente:** las condiciones de la **Freesound API** establecen que su uso gratuito está destinado a fines no comerciales. Para un uso comercial de la API, Freesound indica que hay que contactar al Music Technology Group de la Universitat Pompeu Fabra para las opciones de licencia correspondientes. El hecho de que un sonido individual tenga licencia CC0 o CC BY no elimina esta condición aplicable al uso de la API.
 
 Por ese motivo, antes de desplegar AUDIAR como servicio comercial o incorporarlo a un producto comercial, revisá las condiciones vigentes de Freesound y obtené la autorización correspondiente cuando sea necesaria.
 
