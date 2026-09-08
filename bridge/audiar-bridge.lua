@@ -8,6 +8,7 @@ local SEP = package.config:sub(1, 1)
 local resource_path = reaper.GetResourcePath()
 local JOBS_DIR = resource_path .. SEP .. "audiar-bridge" .. SEP .. "jobs"
 local POLL_INTERVAL_SEC = 0.25
+local POSITION_EPSILON = 0.000001
 
 local function log(msg)
   reaper.ShowConsoleMsg("[AUDIAR Bridge] " .. tostring(msg) .. "\n")
@@ -48,8 +49,46 @@ local function dbToLinear(db)
   return 10 ^ (db / 20)
 end
 
+local function normalizePath(value)
+  return tostring(value or ""):gsub("/", "\\"):lower()
+end
+
+-- Comprueba si REAPER ya tiene exactamente este archivo en este timecode.
+-- La comparación se hace por ruta del source + posición, de modo que:
+--   * el mismo sonido en otro timecode SÍ se puede insertar;
+--   * el mismo sonido dos veces en el mismo timecode NO se duplica;
+--   * tampoco se duplica dos veces dentro del mismo job.
+local function mediaItemExistsAtPosition(soundPath, insertPosition)
+  local wanted = normalizePath(soundPath)
+  for trackIndex = 0, reaper.CountTracks(0) - 1 do
+    local track = reaper.GetTrack(0, trackIndex)
+    for itemIndex = 0, reaper.CountTrackMediaItems(track) - 1 do
+      local item = reaper.GetTrackMediaItem(track, itemIndex)
+      local position = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+      if math.abs(position - insertPosition) <= POSITION_EPSILON then
+        local take = reaper.GetActiveTake(item)
+        if take then
+          local source = reaper.GetMediaItemTake_Source(take)
+          if source then
+            local sourcePath = reaper.GetMediaSourceFileName(source, "")
+            if normalizePath(sourcePath) == wanted then
+              return true
+            end
+          end
+        end
+      end
+    end
+  end
+  return false
+end
+
 local function insertSound(sound, insertPosition)
   local ok, err = pcall(function()
+    if mediaItemExistsAtPosition(sound.path, insertPosition) then
+      log("Omitido (ya existe en ese timecode): " .. tostring(sound.name))
+      return
+    end
+
     local track = createTrack(sound)
 
     -- Importar con la función nativa de REAPER evita crear el MediaItem a mano.
@@ -59,7 +98,7 @@ local function insertSound(sound, insertPosition)
     reaper.SetEditCurPos(insertPosition, false, false)
     reaper.InsertMedia(sound.path, 0)
 
-    local item = reaper.GetTrackMediaItem(track, 0)
+    local item = reaper.GetTrackMediaItem(track, reaper.CountTrackMediaItems(track) - 1)
     if not item then
       log("REAPER no pudo insertar el archivo: " .. tostring(sound.path))
       return
