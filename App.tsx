@@ -6,7 +6,7 @@ import { FramePanel } from "./component-FramePanel";
 import { SoundtrackPanel } from "./component-SoundtrackPanel";
 import { SendSelectionBar } from "./component-SendSelectionBar";
 import { DownloadQueue, makeInitialDownloadProgress, type DownloadBatch } from "./component-DownloadQueue";
-import { createSceneGroupDirectory, downloadSoundsToDirectory, getOrChooseDownloadRoot, type SendableSound } from "./reaper-bridge";
+import { changeDownloadRoot, createSceneGroupDirectory, downloadSoundsToDirectory, getOrChooseDownloadRoot, type SendableSound } from "./reaper-bridge";
 
 type LayersByElement = Record<SoundtrackElement, Layer[]>;
 const emptyLayers = (): LayersByElement => ({ ambientes: [], efectos: [], foley: [] });
@@ -17,9 +17,16 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [downloadQueue, setDownloadQueue] = useState<DownloadBatch[]>([]);
   const [sceneName, setSceneName] = useState("");
+  const [downloadRootName, setDownloadRootName] = useState("");
+  const [changingDownloadRoot, setChangingDownloadRoot] = useState(false);
+  const [downloadRootError, setDownloadRootError] = useState<string | null>(null);
   const sceneGroupRef = useRef<string | null>(null);
   const sceneGroupCreationRef = useRef<Promise<{ rootName: string; groupName: string }> | null>(null);
   const activeBatchRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    void getOrChooseDownloadRoot().then((root) => setDownloadRootName(root.name)).catch(() => {});
+  }, []);
 
   function handleSaveApiKeys(keys: ApiKeys) {
     setApiKeys(keys);
@@ -34,6 +41,22 @@ export default function App() {
   function handleNewScene() {
     sceneGroupRef.current = null;
     sceneGroupCreationRef.current = null;
+  }
+
+  async function handleChangeDownloadRoot() {
+    if (changingDownloadRoot) return;
+    setChangingDownloadRoot(true);
+    setDownloadRootError(null);
+    try {
+      const root = await changeDownloadRoot();
+      setDownloadRootName(root.name);
+      sceneGroupRef.current = null;
+      sceneGroupCreationRef.current = null;
+    } catch (error) {
+      setDownloadRootError(error instanceof Error ? error.message : "No se pudo cambiar la carpeta raíz.");
+    } finally {
+      setChangingDownloadRoot(false);
+    }
   }
 
   function toggleSelect(id: string) {
@@ -65,6 +88,7 @@ export default function App() {
 
   async function ensureSceneGroup(): Promise<{ rootName: string; groupName: string }> {
     const root = await getOrChooseDownloadRoot();
+    setDownloadRootName(root.name);
     if (sceneGroupRef.current) return { rootName: root.name, groupName: sceneGroupRef.current };
 
     if (!sceneGroupCreationRef.current) {
@@ -158,6 +182,10 @@ export default function App() {
         onDesignGenerated={replaceLayers}
         onSceneNameChange={setSceneName}
         onNewScene={handleNewScene}
+        downloadRootName={downloadRootName}
+        changingDownloadRoot={changingDownloadRoot}
+        downloadRootError={downloadRootError}
+        onChangeDownloadRoot={() => void handleChangeDownloadRoot()}
       />
       <SendSelectionBar
         selectedLayers={selectedLayers}
