@@ -11,6 +11,8 @@ import { createSceneGroupDirectory, downloadSoundsToDirectory, getOrChooseDownlo
 type LayersByElement = Record<SoundtrackElement, Layer[]>;
 const emptyLayers = (): LayersByElement => ({ ambientes: [], efectos: [], foley: [] });
 
+type DownloadQueueOptions = { deferStart?: boolean };
+
 export default function App() {
   const [apiKeys, setApiKeys] = useState<ApiKeys>(() => loadApiKeys());
   const [layers, setLayers] = useState<LayersByElement>(emptyLayers());
@@ -56,29 +58,37 @@ export default function App() {
     });
   }
 
-  async function enqueueDownloadBatch(sounds: SendableSound[]) {
-    if (!sounds.length) return;
+  async function enqueueDownloadBatch(sounds: SendableSound[], options: DownloadQueueOptions = {}): Promise<string> {
+    if (!sounds.length) throw new Error("No hay sonidos para descargar.");
 
     try {
       const root = await getOrChooseDownloadRoot();
       const group = await createSceneGroupDirectory(root.handle, sceneName);
+      const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const batch: DownloadBatch = {
-        id: `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: batchId,
         title: group.name,
         folderName: root.name,
         directoryHandle: group.handle,
         sounds,
-        state: "queued",
+        state: options.deferStart ? "waiting" : "queued",
         progress: makeInitialDownloadProgress(sounds),
         createdAt: Date.now(),
       };
       setDownloadQueue((prev) => [...prev, batch]);
+      return batchId;
     } catch (error: any) {
       if (error?.name !== "AbortError") {
         window.alert(error instanceof Error ? error.message : "No se pudo seleccionar la carpeta raíz.");
       }
       throw error;
     }
+  }
+
+  function startDownloadBatch(id: string) {
+    setDownloadQueue((prev) => prev.map((batch) => (
+      batch.id === id && batch.state === "waiting" ? { ...batch, state: "queued" } : batch
+    )));
   }
 
   function updateBatch(id: string, updater: (batch: DownloadBatch) => DownloadBatch) {
@@ -154,6 +164,7 @@ export default function App() {
         selectedLayers={selectedLayers}
         onSent={() => setSelectedIds(new Set())}
         onDownloadQueued={enqueueDownloadBatch}
+        onDownloadStart={startDownloadBatch}
       />
 
       {downloadQueue.length > 0 && (
