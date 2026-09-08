@@ -18,6 +18,8 @@ const PORT = 8765;
 const FREESOUND_API = "https://freesound.org/apiv2";
 const OAUTH_REDIRECT_URI = "https://rnalvarez.github.io/AUDIAR/freesound-oauth.html";
 const OAUTH_FILE = "freesound-oauth.json";
+const OAUTH_STATE_FILE = "freesound-oauth-state.json";
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const MAX_REDIRECTS = 5;
 
 function defaultReaperResourcePath(): string {
@@ -32,6 +34,7 @@ const BRIDGE_DIR = path.join(REAPER_RESOURCE_PATH, "audiar-bridge");
 const JOBS_DIR = path.join(BRIDGE_DIR, "jobs");
 const CACHE_DIR = path.join(BRIDGE_DIR, "cache");
 const OAUTH_PATH = path.join(BRIDGE_DIR, OAUTH_FILE);
+const OAUTH_STATE_PATH = path.join(BRIDGE_DIR, OAUTH_STATE_FILE);
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -72,7 +75,10 @@ interface OAuthStore {
   expiresAt?: number;
 }
 
-let oauthState: string | null = null;
+interface OAuthStateStore {
+  state: string;
+  createdAt: number;
+}
 
 function json(res: import("node:http").ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "Content-Type": "application/json", ...CORS_HEADERS });
@@ -101,6 +107,100 @@ async function clearOAuthTokens(): Promise<void> {
   delete store.refreshToken;
   delete store.expiresAt;
   await saveOAuthStore(store);
+}
+
+async function saveOAuthState(state: string): Promise<void> {
+  await mkdir(BRIDGE_DIR, { recursive: true });
+  const tmpPath = `${OAUTH_STATE_PATH}.tmp`;
+  await writeFile(tmpPath, JSON.stringify({ state, createdAt: Date.now() }, null, 2), "utf-8");
+  await rename(tmpPath, OAUTH_STATE_PATH);
+}
+
+async function loadOAuthState(): Promise<OAuthStateStore | null> {
+  try {
+    const raw = await readFile(OAUTH_STATE_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.state !== "string" || typeof parsed.createdAt !== "number") return null;
+    if (Date.now() - parsed.createdAt > OAUTH_STATE_TTL_MS) {
+      await unlink(OAUTH_STATE_PATH).catch(() => undefined);
+      return null;
+    }
+    return { state: parsed.state, createdAt: parsed.createdAt };
+  } catch {
+    return null;
+  }
+}
+
+async function clearOAuthState(): Promise<void> {
+  await unlink(OAUTH_STATE_PATH).catch(() => undefined);
+}
+
+async function exchangeCode(code: string): Promise<OAuthStore> {
+  const store = await loadOAuthStore();
+  if (!store.clientId || !store.clientSecret) throw new Error("Faltan Client ID/Secret de Freesound.");
+  const body = new URLSearchParams({
+    client_id: store.clientId,
+    client_secret: store.clientSecret,
+    grant_type: "authorization_code",
+    code,
+  });
+  const res = await fetch(`${FREESOUND_API}/oauth2/access_token/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const data: any = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.access_token) {
+    const detail = data?.error_description || data?.detail || data?.error || `OAuth token exchange failed (${res.status})`;
+    throw new Error(`Freesound OAuth: ${detail}`);
+  }
+  const next: OAuthStore = {
+    ...store,
+    accessToken: String(data.access_token),
+    refreshToken: typeof data.refresh_token === "string" ? data.refresh_token : store.refreshToken,
+    expiresAt: Date.now() + Number(data.expires_in ?? 86400) * 1000,
+  };
+  await saveOAuthStore(next);
+  return next;
+}
+
+async function refreshAccessToken(store: OAuthStore): Promise<OAuthStore> {
+  if (!store.clientId || !store.clientSecret || !store.refreshToken) {
+    throw new Error("No hay refresh token de Freesound disponible.");
+  }
+  const body = new URLSearchParams({
+    client_id: store.clientId,
+    client_secret: store.clientSecret,
+    grant_type: "refresh_token",
+    refresh_token: store.refreshToken,
+  });
+  const res = await fetch(`${FREESOUND_API}/oauth2/access_token/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const data: any = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.access_token) {
+    const detail = data?.error_description || data?.detail || data?.error || `OAuth refresh failed (${res.status})`;
+    throw new Error(`Freesound OAuth refresh: ${detail}`);
+  }
+  const next: OAuthStore = {
+    ...store,
+    accessToken: String(data.access_token),
+    refreshToken: typeof data.refresh_token === "string" ? data.refresh_token : store.refreshToken,
+    expiresAt: Date.now() + Number(data.expires_in ?? 86400) * 1000,
+  };
+  await saveOAuthStore(next);
+  return next;
+}
+
+async function getValidAccessToken(): Promise<string | null> {
+  let store = await loadOAuthStore();
+  if (!store.accessToken) return null;
+  if (store.expiresAt && store.expiresAt > Date.now() + 60_000) return store.accessToken;
+  if (!store.refreshToken) return null;
+  store = await refreshAccessToken(store);
+  return store.accessToken ?? null;
 }
 
 function luaStringLiteral(value: string): string {
@@ -141,70 +241,6 @@ async function findCachedOriginal(sound: IncomingSound): Promise<string | null> 
   } catch {
     return null;
   }
-}
-
-async function exchangeCode(code: string): Promise<OAuthStore> {
-  const store = await loadOAuthStore();
-  if (!store.clientId || !store.clientSecret) throw new Error("Faltan Client ID/Secret de Freesound.");
-  const body = new URLSearchParams({
-    client_id: store.clientId,
-    client_secret: store.clientSecret,
-    grant_type: "authorization_code",
-    code,
-  });
-  const res = await fetch(`${FREESOUND_API}/oauth2/access_token/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  const data: any = await res.json().catch(() => ({}));
-  if (!res.ok || !data?.access_token) {
-    throw new Error(data?.error_description || data?.error || `OAuth token exchange failed (${res.status})`);
-  }
-  const next: OAuthStore = {
-    ...store,
-    accessToken: String(data.access_token),
-    refreshToken: typeof data.refresh_token === "string" ? data.refresh_token : store.refreshToken,
-    expiresAt: Date.now() + Number(data.expires_in ?? 86400) * 1000,
-  };
-  await saveOAuthStore(next);
-  return next;
-}
-
-async function refreshAccessToken(store: OAuthStore): Promise<OAuthStore> {
-  if (!store.clientId || !store.clientSecret || !store.refreshToken) {
-    throw new Error("No hay refresh token de Freesound disponible.");
-  }
-  const body = new URLSearchParams({
-    client_id: store.clientId,
-    client_secret: store.clientSecret,
-    grant_type: "refresh_token",
-    refresh_token: store.refreshToken,
-  });
-  const res = await fetch(`${FREESOUND_API}/oauth2/access_token/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  const data: any = await res.json().catch(() => ({}));
-  if (!res.ok || !data?.access_token) throw new Error(data?.error_description || data?.error || `OAuth refresh failed (${res.status})`);
-  const next: OAuthStore = {
-    ...store,
-    accessToken: String(data.access_token),
-    refreshToken: typeof data.refresh_token === "string" ? data.refresh_token : store.refreshToken,
-    expiresAt: Date.now() + Number(data.expires_in ?? 86400) * 1000,
-  };
-  await saveOAuthStore(next);
-  return next;
-}
-
-async function getValidAccessToken(): Promise<string | null> {
-  let store = await loadOAuthStore();
-  if (!store.accessToken) return null;
-  if (store.expiresAt && store.expiresAt > Date.now() + 60_000) return store.accessToken;
-  if (!store.refreshToken) return null;
-  store = await refreshAccessToken(store);
-  return store.accessToken ?? null;
 }
 
 function requestStream(url: string, headers: Record<string, string> = {}, redirectCount = 0): Promise<IncomingMessage> {
@@ -299,19 +335,14 @@ async function downloadPreview(sound: IncomingSound): Promise<string> {
 }
 
 async function downloadAudio(sound: IncomingSound): Promise<{ path: string; originalUsed: boolean }> {
-  // 1) Never hit the network for a sound whose original is already cached.
   const cachedOriginal = await findCachedOriginal(sound);
   if (cachedOriginal) return { path: cachedOriginal, originalUsed: true };
-
-  // 2) No original cached: try to obtain the original from Freesound.
   try {
     const original = await downloadOriginalFromFreesound(sound);
     if (original) return { path: original, originalUsed: true };
   } catch (error: any) {
     console.warn(`[AUDIAR Bridge] No se pudo obtener original: ${sound.name} — ${error?.message ?? error}`);
   }
-
-  // 3) Fall back to the preview; downloadPreview() itself is cache-aware.
   return { path: await downloadPreview(sound), originalUsed: false };
 }
 
@@ -365,9 +396,10 @@ const server = createServer(async (req, res) => {
 
   if (req.url === "/oauth/status" && req.method === "GET") {
     const store = await loadOAuthStore();
+    const connected = Boolean(store.accessToken && store.expiresAt && store.expiresAt > Date.now());
     json(res, 200, {
       configured: Boolean(store.clientId && store.clientSecret),
-      connected: Boolean(store.accessToken),
+      connected,
       expiresAt: store.expiresAt,
     });
     return;
@@ -380,13 +412,34 @@ const server = createServer(async (req, res) => {
       const body = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
       const clientId = typeof body?.clientId === "string" ? body.clientId.trim() : "";
       const clientSecret = typeof body?.clientSecret === "string" ? body.clientSecret.trim() : "";
-      if (!clientId || !clientSecret) {
-        json(res, 400, { error: "Se requieren Client ID y Client Secret." });
+      if (!clientId) {
+        json(res, 400, { error: "Se requiere el Client ID de Freesound." });
         return;
       }
+
       const current = await loadOAuthStore();
-      await saveOAuthStore({ clientId, clientSecret, accessToken: current.accessToken, refreshToken: current.refreshToken, expiresAt: current.expiresAt });
-      json(res, 200, { ok: true });
+      const clientChanged = Boolean(current.clientId && current.clientId !== clientId);
+      if (clientChanged && !clientSecret) {
+        json(res, 400, { error: "Cambió el Client ID: también hace falta el Client Secret de esa credencial." });
+        return;
+      }
+      if (!current.clientId && !clientSecret) {
+        json(res, 400, { error: "En la primera conexión hacen falta Client ID y Client Secret de Freesound." });
+        return;
+      }
+
+      const next: OAuthStore = {
+        clientId,
+        clientSecret: clientSecret || current.clientSecret,
+      };
+      if (!clientChanged) {
+        next.accessToken = current.accessToken;
+        next.refreshToken = current.refreshToken;
+        next.expiresAt = current.expiresAt;
+      }
+      await saveOAuthStore(next);
+      if (clientChanged) await clearOAuthState();
+      json(res, 200, { ok: true, configured: true, credentialsChanged: clientChanged });
     } catch (err: any) {
       json(res, 500, { error: err?.message ?? "No se pudieron guardar las credenciales." });
     }
@@ -395,15 +448,16 @@ const server = createServer(async (req, res) => {
 
   if (req.url === "/oauth/start" && req.method === "GET") {
     const store = await loadOAuthStore();
-    if (!store.clientId) {
+    if (!store.clientId || !store.clientSecret) {
       json(res, 400, { error: "Configurá primero el Client ID y Client Secret de Freesound." });
       return;
     }
-    oauthState = randomBytes(24).toString("hex");
+    const state = randomBytes(24).toString("hex");
+    await saveOAuthState(state);
     const url = new URL(`${FREESOUND_API}/oauth2/authorize/`);
     url.searchParams.set("client_id", store.clientId);
     url.searchParams.set("response_type", "code");
-    url.searchParams.set("state", oauthState);
+    url.searchParams.set("state", state);
     url.searchParams.set("redirect_uri", OAUTH_REDIRECT_URI);
     json(res, 200, { authorizationUrl: url.toString(), redirectUri: OAUTH_REDIRECT_URI });
     return;
@@ -416,14 +470,17 @@ const server = createServer(async (req, res) => {
       const body = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
       const code = typeof body?.code === "string" ? body.code : "";
       const state = typeof body?.state === "string" ? body.state : "";
-      if (!code || !state || !oauthState || state !== oauthState) {
-        json(res, 400, { error: "Estado OAuth inválido o autorización incompleta." });
+      const expected = await loadOAuthState();
+      if (!code || !state || !expected || state !== expected.state) {
+        await clearOAuthState();
+        json(res, 400, { error: "Estado OAuth inválido o autorización incompleta. Iniciá nuevamente la conexión con Freesound." });
         return;
       }
-      oauthState = null;
+      await clearOAuthState();
       const store = await exchangeCode(code);
       json(res, 200, { ok: true, expiresAt: store.expiresAt });
     } catch (err: any) {
+      await clearOAuthState();
       json(res, 400, { error: err?.message ?? "No se pudo completar OAuth con Freesound." });
     }
     return;
@@ -432,7 +489,8 @@ const server = createServer(async (req, res) => {
   if (req.url === "/oauth/disconnect" && req.method === "POST") {
     try {
       await clearOAuthTokens();
-      json(res, 200, { ok: true, configured: Boolean((await loadOAuthStore()).clientId) });
+      await clearOAuthState();
+      json(res, 200, { ok: true, configured: Boolean((await loadOAuthStore()).clientId && (await loadOAuthStore()).clientSecret) });
     } catch (err: any) {
       json(res, 500, { error: err?.message ?? "No se pudo desconectar Freesound." });
     }
@@ -444,15 +502,18 @@ const server = createServer(async (req, res) => {
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk as Buffer);
       const body = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
-      const sounds: IncomingSound[] = Array.isArray(body?.sounds) ? body.sounds : [];
-      if (sounds.length === 0) {
-        json(res, 400, { error: "no se recibieron sonidos" });
+      const sounds = Array.isArray(body?.sounds) ? body.sounds : [];
+      if (!sounds.length) {
+        json(res, 400, { error: "No se recibieron sonidos." });
         return;
       }
-      json(res, 202, { ok: true, queued: sounds.length });
-      void Promise.all(sounds.map(downloadAndQueueSound));
+      await ensureDirs();
+      for (const sound of sounds as IncomingSound[]) {
+        await downloadAndQueueSound(sound);
+      }
+      json(res, 200, { ok: true, queued: sounds.length });
     } catch (err: any) {
-      if (!res.headersSent) json(res, 500, { error: err?.message ?? "error inesperado en el bridge" });
+      json(res, 500, { error: err?.message ?? "No se pudo procesar el envío." });
     }
     return;
   }
@@ -460,11 +521,13 @@ const server = createServer(async (req, res) => {
   json(res, 404, { error: "not found" });
 });
 
-ensureDirs().then(() => {
-  server.listen(PORT, "127.0.0.1", () => {
-    console.log(`AUDIAR REAPER Bridge escuchando en http://localhost:${PORT}`);
-    console.log(`Carpeta de trabajos: ${JOBS_DIR}`);
-    console.log(`OAuth redirect: ${OAUTH_REDIRECT_URI}`);
-    console.log(`Asegurate de tener audiar-bridge.lua cargado y corriendo en REAPER.`);
+ensureDirs()
+  .then(() => {
+    server.listen(PORT, "127.0.0.1", () => {
+      console.log(`[AUDIAR Bridge] escuchando en http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("[AUDIAR Bridge] No se pudieron crear las carpetas:", err);
+    process.exitCode = 1;
   });
-});
