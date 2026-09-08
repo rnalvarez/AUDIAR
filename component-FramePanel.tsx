@@ -42,7 +42,6 @@ export function FramePanel({ apiKeys, onDesignGenerated, onSceneNameChange, onNe
   function handleFile(file: File | undefined) {
     if (!file) return;
     if (file.size > MAX_IMAGE_BYTES) { setUploadError(`La imagen pesa ${(file.size / (1024 * 1024)).toFixed(1)}MB — el máximo es 20MB. Probá con una versión más liviana.`); if (inputRef.current) inputRef.current.value = ""; return; }
-    onNewScene();
     setUploadError(null);
     setImageUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(file); });
     setImageFile(file); setFileName(file.name); setAnalysisError(null); handleSceneNameChange("");
@@ -59,6 +58,7 @@ export function FramePanel({ apiKeys, onDesignGenerated, onSceneNameChange, onNe
     const cuesByCategory: Record<AutoCategory, SceneAnalysis["ambience"]> = { ambientes: analysis.ambience, efectos: analysis.effects, foley: analysis.foley };
     generationPageRef.current += 1; const page = generationPageRef.current;
     for (const category of AUTO_CATEGORIES) { const cues = uniqueCues(cuesByCategory[category]); const layers: Layer[] = []; const usedIds = new Set<number>(); for (const cue of cues) { try { const found = await findFirstFreesoundResult(cue.searchQuery, apiKeys.freesound!, page, usedIds); if (found && !usedIds.has(found.result.id)) { usedIds.add(found.result.id); layers.push(resultToLayer(category, found.query, found.result)); } } catch {} } generated[category] = layers; }
+    onNewScene();
     onDesignGenerated(generated);
   }
   async function handleAnalyze() {
