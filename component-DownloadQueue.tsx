@@ -47,7 +47,7 @@ export function makeInitialDownloadProgress(sounds: SendableSound[]): DownloadPr
   return { current: 0, total: sounds.length, failed: 0, downloadedBytes: 0, totalBytes, remainingBytes: totalBytes, speedBytesPerSecond: 0, active: 0, items: sounds.map((sound) => ({ id: sound.id, name: sound.name, state: "queued", loadedBytes: 0, totalBytes: sound.fileSize ?? 0, speedBytesPerSecond: 0 })) };
 }
 
-export function DownloadQueue({ batches, onClearCompleted }: { batches: DownloadBatch[]; onClearCompleted: () => void }) {
+export function DownloadQueue({ batches }: { batches: DownloadBatch[] }) {
   const active = batches.filter((batch) => batch.state === "downloading").length;
   const queued = batches.filter((batch) => batch.state === "queued").length;
   const completed = batches.filter((batch) => batch.state === "done").length;
@@ -98,7 +98,6 @@ export function DownloadQueue({ batches, onClearCompleted }: { batches: Download
                 </details>
               );
             })}
-            <button className="download-queue__clear" onClick={onClearCompleted} disabled={!batches.some((batch) => batch.state === "done")}>Limpiar completadas</button>
           </div>
         </details>
       </div>
