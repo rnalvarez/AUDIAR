@@ -6,6 +6,10 @@ import { ELEMENTS } from "./types";
 const BRIDGE_URL = "http://localhost:8765";
 const DOWNLOAD_BRIDGE_URL = "http://localhost:8766";
 
+const ROOT_DB_NAME = "audiar-settings";
+const ROOT_DB_STORE = "handles";
+const ROOT_DB_KEY = "download-root";
+
 export interface SendableSound {
   id: string;
   name: string;
@@ -21,6 +25,11 @@ export interface SendableSound {
   sampleRate?: number;
   bitDepth?: number;
   fileSize?: number;
+}
+
+export interface DownloadRootHandle {
+  handle: any;
+  name: string;
 }
 
 function elementLabel(element: SoundtrackElement): string {
@@ -75,10 +84,100 @@ export async function sendToReaperBridge(sounds: SendableSound[]): Promise<SendR
   }
 }
 
+function openRootDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(ROOT_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(ROOT_DB_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("No se pudo abrir el almacenamiento local."));
+  });
+}
+
+async function loadSavedRootHandle(): Promise<any | null> {
+  if (typeof indexedDB === "undefined") return null;
+  try {
+    const db = await openRootDb();
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction(ROOT_DB_STORE, "readonly").objectStore(ROOT_DB_STORE).get(ROOT_DB_KEY);
+      request.onsuccess = () => resolve(request.result ?? null);
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function saveRootHandle(handle: any): Promise<void> {
+  if (typeof indexedDB === "undefined") return;
+  try {
+    const db = await openRootDb();
+    await new Promise<void>((resolve, reject) => {
+      const request = db.transaction(ROOT_DB_STORE, "readwrite").objectStore(ROOT_DB_STORE).put(handle, ROOT_DB_KEY);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    // Si el navegador no permite persistir el handle, seguimos funcionando durante la sesión.
+  }
+}
+
+async function directoryPermission(handle: any): Promise<"granted" | "prompt" | "denied"> {
+  if (typeof handle?.queryPermission !== "function") return "granted";
+  return handle.queryPermission({ mode: "readwrite" });
+}
+
+async function ensureDirectoryPermission(handle: any): Promise<boolean> {
+  let permission = await directoryPermission(handle);
+  if (permission === "granted") return true;
+  if (permission === "denied") return false;
+  if (typeof handle?.requestPermission !== "function") return false;
+  permission = await handle.requestPermission({ mode: "readwrite" });
+  return permission === "granted";
+}
+
+export async function getOrChooseDownloadRoot(): Promise<DownloadRootHandle> {
+  const saved = await loadSavedRootHandle();
+  if (saved && await ensureDirectoryPermission(saved)) {
+    return { handle: saved, name: saved.name ?? "AUDIAR" };
+  }
+
+  const picker = (window as any).showDirectoryPicker;
+  if (typeof picker !== "function") {
+    throw new Error("La selección de carpetas requiere Chrome o Edge actualizado.");
+  }
+  const handle = await picker({ mode: "readwrite" });
+  await saveRootHandle(handle);
+  return { handle, name: handle.name ?? "AUDIAR" };
+}
+
+async function nextGroupNumber(root: any): Promise<number> {
+  let max = 0;
+  try {
+    if (typeof root?.entries !== "function") return 1;
+    for await (const [name, value] of root.entries()) {
+      if (value?.kind !== "directory") continue;
+      const match = String(name).match(/^GRUPO\s+(\d+)\b/i);
+      if (match) max = Math.max(max, Number(match[1]));
+    }
+  } catch {
+    // Ante cualquier limitación del navegador, empezamos en 1 y evitamos sobrescribir abajo.
+  }
+  return max + 1;
+}
+
+export async function createSceneGroupDirectory(root: any): Promise<{ handle: any; name: string; number: number }> {
+  const number = await nextGroupNumber(root);
+  const name = `GRUPO ${String(number).padStart(2, "0")} - Escena ${String(number).padStart(2, "0")}`;
+  const handle = await root.getDirectoryHandle(name, { create: true });
+  return { handle, name, number };
+}
+
 function safeDownloadFilename(sound: SendableSound): string {
   const raw = sound.originalFilename?.trim() || sound.name.trim() || `sound-${sound.freesoundId ?? sound.id}`;
   return raw
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/[<>:\"/\\|?*\x00-\x1F]/g, "_")
     .replace(/[. ]+$/, "")
     .slice(0, 180) || `sound-${sound.freesoundId ?? sound.id}`;
 }
@@ -144,16 +243,11 @@ async function filenameExists(directoryHandle: any, filename: string): Promise<b
   }
 }
 
-async function resolveDownloadFilename(
-  sound: SendableSound,
-  directoryHandle: any,
-  usedNames: Set<string>,
-): Promise<string> {
+async function resolveDownloadFilename(sound: SendableSound, directoryHandle: any, usedNames: Set<string>): Promise<string> {
   const initial = safeDownloadFilename(sound);
   const dot = initial.lastIndexOf(".");
   const stem = dot > 0 ? initial.slice(0, dot) : initial;
   const ext = dot > 0 ? initial.slice(dot) : "";
-
   let filename = initial;
   let suffix = 2;
   while (usedNames.has(filename.toLowerCase()) || await filenameExists(directoryHandle, filename)) {
@@ -164,14 +258,7 @@ async function resolveDownloadFilename(
   return filename;
 }
 
-async function downloadOneToDirectory(
-  sound: SendableSound,
-  index: number,
-  directoryHandle: any,
-  usedNames: Set<string>,
-  progress: DownloadProgress,
-  emit: () => void,
-): Promise<void> {
+async function downloadOneToDirectory(sound: SendableSound, index: number, directoryHandle: any, usedNames: Set<string>, progress: DownloadProgress, emit: () => void): Promise<void> {
   const item = progress.items[index];
   item.state = "downloading";
   progress.active += 1;
@@ -197,7 +284,6 @@ async function downloadOneToDirectory(
   const filename = await resolveDownloadFilename(sound, directoryHandle, usedNames);
   const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
   const writable = await fileHandle.createWritable();
-
   try {
     if (!res.body) {
       const blob = await res.blob();
@@ -226,11 +312,7 @@ async function downloadOneToDirectory(
   }
 }
 
-export async function downloadSoundsToDirectory(
-  sounds: SendableSound[],
-  directoryHandle: any,
-  onProgress?: (progress: DownloadProgress) => void,
-): Promise<{ completed: number; failed: number }> {
+export async function downloadSoundsToDirectory(sounds: SendableSound[], directoryHandle: any, onProgress?: (progress: DownloadProgress) => void): Promise<{ completed: number; failed: number }> {
   const progress = createInitialProgress(sounds);
   if (sounds.length === 0) {
     onProgress?.(progress);
@@ -258,27 +340,18 @@ export async function downloadSoundsToDirectory(
     }
 
     progress.items.forEach((item) => {
-      const total = item.totalBytes || 0;
-      if (item.state === "downloading" && total > 0 && progress.speedBytesPerSecond > 0) {
-        item.speedBytesPerSecond = progress.speedBytesPerSecond;
-      } else if (item.state !== "downloading") {
-        item.speedBytesPerSecond = 0;
-      }
+      if (item.state === "downloading" && progress.speedBytesPerSecond > 0) item.speedBytesPerSecond = progress.speedBytesPerSecond;
+      else if (item.state !== "downloading") item.speedBytesPerSecond = 0;
     });
 
-    if (progress.speedBytesPerSecond > 0 && progress.remainingBytes > 0) {
-      progress.etaSeconds = progress.remainingBytes / progress.speedBytesPerSecond;
-    } else {
-      progress.etaSeconds = undefined;
-    }
+    progress.etaSeconds = progress.speedBytesPerSecond > 0 && progress.remainingBytes > 0
+      ? progress.remainingBytes / progress.speedBytesPerSecond
+      : undefined;
 
     const shouldEmit = force || now - lastEmitAt >= 100;
     if (shouldEmit) {
       lastEmitAt = now;
-      onProgress?.({
-        ...progress,
-        items: progress.items.map((item) => ({ ...item })),
-      });
+      onProgress?.({ ...progress, items: progress.items.map((item) => ({ ...item })) });
     }
   };
 
@@ -303,7 +376,7 @@ export async function downloadSoundsToDirectory(
   const workerCount = Math.min(3, sounds.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
   emit(true);
-  return { completed: progress.total - progress.failed > 0 ? sounds.length - progress.failed : 0, failed: progress.failed };
+  return { completed: sounds.length - progress.failed, failed: progress.failed };
 }
 
 export async function getFreesoundOAuthStatus(): Promise<{ connected: boolean; configured: boolean; expiresAt?: number }> {
