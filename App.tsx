@@ -153,6 +153,7 @@ export default function App() {
       <footer className="app__footer">
         <div className="app__footer-credit">Diseñado y creado por <strong>Ramiro N. Alvarez</strong> · con herramientas de IA.</div>
         <div className="app__footer-legal">Los sonidos se obtienen de <a href="https://freesound.org/" target="_blank" rel="noreferrer">Freesound</a> y cada resultado conserva la licencia indicada por su autor. CC BY requiere atribución; CC0 no la exige. Verificá siempre las condiciones de la licencia antes de publicar una producción. <a href="https://freesound.org/help/tos_api/" target="_blank" rel="noreferrer">Condiciones de la API de Freesound</a>. · <a href="https://github.com/rnalvarez/AUDIAR/blob/main/LICENSE" target="_blank" rel="noreferrer">Código: MIT License</a> · <a href="https://github.com/rnalvarez/AUDIAR/blob/main/NOTICE.md" target="_blank" rel="noreferrer">Autoría</a></div>
+      </footer>
     </div>
   );
 }
