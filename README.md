@@ -6,6 +6,20 @@ Analiza la imagen con IA, propone sonidos y los busca directamente en Freesound.
 
 > **Sitio:** https://rnalvarez.github.io/AUDIAR/
 
+## Licencia del proyecto
+
+El código fuente de AUDIAR se distribuye bajo la **MIT License**.
+
+Esto significa que podés usar, copiar, modificar, estudiar y redistribuir el software, incluso dentro de proyectos propios o comerciales, siempre que conserves el aviso de copyright y el texto de la licencia.
+
+Copyright (c) 2026 Ramiro N. Alvarez.
+
+El proyecto fue diseñado y desarrollado por **Ramiro N. Alvarez con asistencia de herramientas de inteligencia artificial**. Esta declaración describe el proceso de desarrollo; la licencia se aplica a las partes del proyecto sobre las que el autor puede otorgar derechos.
+
+La licencia de AUDIAR no cubre automáticamente componentes, servicios, librerías, contenidos o archivos de terceros. Cada uno conserva sus propias condiciones de uso.
+
+El nombre **AUDIAR** y cualquier marca asociada no se licencian por el solo hecho de utilizar el código bajo MIT.
+
 ## Qué hace
 
 AUDIAR trabaja con tres categorías:
